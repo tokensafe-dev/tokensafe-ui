@@ -44,11 +44,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @tokensafe-dev/ui
-        run: pnpm --filter @tokensafe-dev/ui publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Publish create-tokensafe-ui CLI
         run: pnpm --filter create-tokensafe-ui publish --access public --no-git-checks
         env:

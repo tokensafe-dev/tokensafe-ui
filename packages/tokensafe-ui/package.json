@@ -1,6 +1,6 @@
 {
   "name": "tokensafe-ui",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Deterministic, token-efficient frontend reactive micro-framework for AI coding agents",
   "type": "module",
   "files": [
