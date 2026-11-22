@@ -9,7 +9,10 @@ import path from 'node:path';
 import * as parser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
+import { testAction } from '@agent-dom/core';
+import { buildDependencyGraph } from '@agent-dom/observer';
 import { applyPatch, type ComponentPatch } from '@agent-dom/patcher';
+import { validateWorkspacePath, checkSecretLeak } from './security.js';
 
 const traverse = (_traverse as any).default || _traverse;
 
@@ -25,7 +28,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
   const server = new Server(
     {
       name: 'agent-dom-mcp',
-      version: '0.1.0',
+      version: '0.2.0',
     },
     {
       capabilities: {
@@ -34,80 +37,91 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
     }
   );
 
-  // Define available MCP tools
+  // Define OUMV (Observe, Understand, Mutate, Verify) tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
         {
-          name: 'agent_dom_get_view',
+          name: 'agent_dom_observe',
           description:
-            'Queries the active, token-efficient semantic UI snapshot (<150 tokens) from the running agent-dom DevServer or offline files.',
+            'OBSERVE (Pillar 1): Progressive context disclosure query (L0 Pulse <25t, L1 Surface <150t, L2 Contract, L3 Source, L4 Traces).',
           inputSchema: {
             type: 'object',
             properties: {
+              level: {
+                type: 'string',
+                enum: ['L0', 'L1', 'L2', 'L3', 'L4'],
+                default: 'L1',
+                description: 'Observation level (L0: Pulse, L1: Surface, L2: Contract, L3: Source, L4: Traces)',
+              },
               format: {
                 type: 'string',
                 enum: ['yaml', 'sexp', 'json'],
                 default: 'yaml',
-                description: 'Output format: yaml (default), sexp, or json',
+              },
+              componentId: {
+                type: 'string',
+                description: 'Optional target component ID for L2/L3/L4 drill-down',
               },
             },
           },
         },
         {
-          name: 'agent_dom_inspect',
+          name: 'agent_dom_understand',
           description:
-            'Extracts the contract (State schema, Actions, AST element IDs) of a specific component in <40 tokens.',
+            'UNDERSTAND (Pillar 2): Impact analysis and causality telemetry. Answers "What breaks if I change this?" or "Why is UI in this state?".',
           inputSchema: {
             type: 'object',
             properties: {
-              componentId: {
+              query: {
                 type: 'string',
-                description: 'Component ID, e.g. "counter-card"',
+                enum: ['impact', 'dependencies'],
+                description: 'Type of understanding query (impact or dependencies)',
               },
-              filePath: {
+              target: {
                 type: 'string',
-                description: 'Relative or absolute path to component file',
+                description: 'State key or Component ID to analyze',
               },
+            },
+            required: ['query'],
+          },
+        },
+        {
+          name: 'agent_dom_get_component_source',
+          description:
+            'MUTATE (Pillar 3): Symbol-level source code retrieval with line mapping and AST bounds for safe, isolated agent edits.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              componentId: { type: 'string', description: 'Component ID, e.g. "task-board"' },
+              filePath: { type: 'string', description: 'Relative path to component file' },
             },
             required: ['componentId', 'filePath'],
           },
         },
         {
-          name: 'agent_dom_apply_patch',
+          name: 'agent_dom_test_action',
           description:
-            'Applies a surgical AST patch (add action, update state schema, insert JSX, or bind event) with instant HMR.',
+            'VERIFY (Pillar 4): Instant 5ms Action Testing. Executes an action in memory and returns a structured before/after state diff without a browser.',
           inputSchema: {
             type: 'object',
             properties: {
-              filePath: {
-                type: 'string',
-                description: 'Path to component file to patch',
-              },
-              patch: {
-                type: 'object',
-                description: 'Component patch specification',
-                properties: {
-                  op: {
-                    type: 'string',
-                    enum: ['add_action', 'update_state', 'insert_jsx', 'bind_event'],
-                  },
-                  componentId: { type: 'string' },
-                  name: { type: 'string' },
-                  key: { type: 'string' },
-                  code: { type: 'string' },
-                  schemaCode: { type: 'string' },
-                  targetAgentId: { type: 'string' },
-                  position: {
-                    type: 'string',
-                    enum: ['before', 'after', 'prepend', 'append'],
-                  },
-                  jsxCode: { type: 'string' },
-                  event: { type: 'string' },
-                  actionName: { type: 'string' },
-                },
-                required: ['op'],
-              },
+              componentId: { type: 'string', description: 'Target component ID' },
+              action: { type: 'string', description: 'Action name to trigger' },
+              payload: { description: 'Optional action payload' },
+            },
+            required: ['componentId', 'action'],
+          },
+        },
+        {
+          name: 'agent_dom_apply_patch',
+          description:
+            'MUTATE Macro: Applies a surgical AST patch (add action, update state schema, insert JSX, or bind event) with instant HMR.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              filePath: { type: 'string', description: 'Path to component file to patch' },
+              patch: { type: 'object', description: 'Component patch specification' },
             },
             required: ['filePath', 'patch'],
           },
@@ -127,100 +141,139 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
 
   // Handle Tool Calls
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
+    const { name, arguments: args = {} } = request.params;
 
     switch (name) {
-      case 'agent_dom_get_view': {
-        // Try live DevServer RPC first
+      case 'agent_dom_observe': {
+        const { level = 'L1', format = 'yaml', componentId } = args as any;
+
+        // Try DevServer RPC
         try {
           const res = await fetch(`${devServerUrl}/__agent_dom/rpc`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ method: 'get_snapshot' }),
+            body: JSON.stringify({ method: 'observe', params: { level, format, componentId } }),
           });
           if (res.ok) {
             const data: any = await res.json();
             return {
-              content: [
-                {
-                  type: 'text',
-                  text: data.result?.snapshot || 'view: empty\nelements: []',
-                },
-              ],
+              content: [{ type: 'text', text: data.result?.payload || 'level: empty' }],
             };
           }
         } catch {
-          // DevServer offline fallback
+          // DevServer offline
         }
 
         return {
           content: [
             {
               type: 'text',
-              text: 'status: dev_server_offline\nnote: Vite DevServer is not currently running. Use agent_dom_inspect to inspect component files directly.',
+              text: `level: ${level}\nstatus: dev_server_offline\nnote: Vite DevServer is not running. Use agent_dom_get_component_source to inspect files directly on disk.`,
             },
           ],
         };
       }
 
-      case 'agent_dom_inspect': {
-        const { componentId, filePath } = args as {
-          componentId: string;
-          filePath: string;
-        };
+      case 'agent_dom_understand': {
+        const { query, target = '' } = args as any;
+        const graph = buildDependencyGraph();
 
-        const resolved = path.isAbsolute(filePath)
-          ? filePath
-          : path.resolve(projectRoot, filePath);
+        if (query === 'impact') {
+          const impact = graph.analyzeImpact(target);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(impact, null, 2) }],
+          };
+        }
+
+        return {
+          content: [{ type: 'text', text: graph.toYaml() }],
+        };
+      }
+
+      case 'agent_dom_get_component_source': {
+        const { componentId, filePath } = args as any;
+
+        let resolved: string;
+        try {
+          resolved = validateWorkspacePath(filePath, projectRoot);
+        } catch (err: any) {
+          return { isError: true, content: [{ type: 'text', text: err.message }] };
+        }
 
         if (!fs.existsSync(resolved)) {
-          return {
-            isError: true,
-            content: [{ type: 'text', text: `File not found: ${resolved}` }],
-          };
+          return { isError: true, content: [{ type: 'text', text: `File not found: ${resolved}` }] };
         }
 
         const source = fs.readFileSync(resolved, 'utf-8');
         const contract = inspectComponentContract(source, componentId);
+        const lines = source.split('\n').map((l, i) => `${String(i + 1).padStart(2, '0')} | ${l}`);
 
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(contract, null, 2),
+              text: JSON.stringify(
+                {
+                  componentId,
+                  filePath: path.relative(projectRoot, resolved),
+                  contract,
+                  annotatedSource: lines.join('\n'),
+                },
+                null,
+                2
+              ),
             },
           ],
         };
       }
 
-      case 'agent_dom_apply_patch': {
-        const { filePath, patch } = args as {
-          filePath: string;
-          patch: ComponentPatch;
-        };
+      case 'agent_dom_test_action': {
+        const { componentId, action, payload } = args as any;
 
-        const resolved = path.isAbsolute(filePath)
-          ? filePath
-          : path.resolve(projectRoot, filePath);
-
-        if (!fs.existsSync(resolved)) {
+        try {
+          const testResult = await testAction(componentId, action, payload);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(testResult, null, 2) }],
+          };
+        } catch (err: any) {
           return {
             isError: true,
-            content: [{ type: 'text', text: `File not found: ${resolved}` }],
+            content: [{ type: 'text', text: `Action Test Failed: ${err.message}` }],
           };
+        }
+      }
+
+      case 'agent_dom_apply_patch': {
+        const { filePath, patch } = args as any;
+
+        let resolved: string;
+        try {
+          resolved = validateWorkspacePath(filePath, projectRoot);
+        } catch (err: any) {
+          return { isError: true, content: [{ type: 'text', text: err.message }] };
+        }
+
+        if (!fs.existsSync(resolved)) {
+          return { isError: true, content: [{ type: 'text', text: `File not found: ${resolved}` }] };
         }
 
         const source = fs.readFileSync(resolved, 'utf-8');
         const patchResult = applyPatch(source, patch);
 
         if (!patchResult.success) {
+          return { isError: true, content: [{ type: 'text', text: `Patch Error: ${patchResult.error}` }] };
+        }
+
+        // Secret Leak Check
+        const leakCheck = checkSecretLeak(patchResult.code);
+        if (leakCheck.hasLeak) {
           return {
             isError: true,
-            content: [{ type: 'text', text: `Patch Error: ${patchResult.error}` }],
+            content: [{ type: 'text', text: `Security Guard: Commit blocked. ${leakCheck.reason}` }],
           };
         }
 
-        // Write patched file to disk
+        // Write to disk
         fs.writeFileSync(resolved, patchResult.code, 'utf-8');
 
         return {
@@ -235,20 +288,12 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
 
       case 'agent_dom_get_errors': {
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify({ errors: [] }),
-            },
-          ],
+          content: [{ type: 'text', text: JSON.stringify({ errors: [] }) }],
         };
       }
 
       default: {
-        return {
-          isError: true,
-          content: [{ type: 'text', text: `Unknown tool: ${name}` }],
-        };
+        return { isError: true, content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
       }
     }
   });
