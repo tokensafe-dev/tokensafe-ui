@@ -12,4 +12,19 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
+  noExternal: [
+    '@agent-dom/core',
+    '@agent-dom/observer',
+    '@agent-dom/oumv',
+    '@agent-dom/patcher',
+    '@agent-dom/mcp',
+  ],
+  external: [
+    'zod',
+    '@babel/parser',
+    '@babel/traverse',
+    '@babel/types',
+    'typescript',
+  ],
 });
+

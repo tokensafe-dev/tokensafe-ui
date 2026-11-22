@@ -1,5 +1,5 @@
 {
-  "name": "@tokensafe/ui",
+  "name": "@tokensafe-dev/ui",
   "version": "0.1.0",
   "description": "Deterministic, token-efficient frontend reactive micro-framework for AI coding agents",
   "type": "module",
@@ -37,6 +37,27 @@
     "build": "tsup",
     "dev": "tsup --watch"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tokensafe-dev/tokensafe-ui.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/tokensafe-dev/tokensafe-ui#readme",
+  "bugs": {
+    "url": "https://github.com/tokensafe-dev/tokensafe-ui/issues"
+  },
+  "keywords": [
+    "tokensafe",
+    "ai-agent",
+    "reactive",
+    "signals",
+    "oumv",
+    "agent-ui",
+    "micro-framework"
+  ],
   "dependencies": {
     "tokensafe-ui": "workspace:*"
   },
@@ -45,3 +66,4 @@
     "typescript": "^5.7.2"
   }
 }
+

@@ -257,9 +257,25 @@ importers:
 
   packages/tokensafe-ui:
     dependencies:
+      '@babel/parser':
+        specifier: ^7.26.5
+        version: 7.29.15
+      '@babel/traverse':
+        specifier: ^7.26.5
+        version: 7.29.15
+      '@babel/types':
+        specifier: ^7.26.5
+        version: 7.29.15
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
       '@agent-dom/core':
         specifier: workspace:*
         version: link:../core
+      '@agent-dom/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@agent-dom/observer':
         specifier: workspace:*
         version: link:../observer
@@ -269,10 +285,6 @@ importers:
       '@agent-dom/patcher':
         specifier: workspace:*
         version: link:../patcher
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
-    devDependencies:
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(postcss@8.5.33)(typescript@5.9.3)

@@ -37,14 +37,39 @@
     "build": "tsup",
     "dev": "tsup --watch"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tokensafe-dev/tokensafe-ui.git",
+    "directory": "packages/tokensafe-ui"
+  },
+  "homepage": "https://github.com/tokensafe-dev/tokensafe-ui#readme",
+  "bugs": {
+    "url": "https://github.com/tokensafe-dev/tokensafe-ui/issues"
+  },
+  "keywords": [
+    "tokensafe",
+    "ai-agent",
+    "reactive",
+    "signals",
+    "oumv",
+    "agent-ui",
+    "micro-framework"
+  ],
   "dependencies": {
-    "@agent-dom/core": "workspace:*",
-    "@agent-dom/observer": "workspace:*",
-    "@agent-dom/oumv": "workspace:*",
-    "@agent-dom/patcher": "workspace:*",
+    "@babel/parser": "^7.26.5",
+    "@babel/traverse": "^7.26.5",
+    "@babel/types": "^7.26.5",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@agent-dom/core": "workspace:*",
+    "@agent-dom/mcp": "workspace:*",
+    "@agent-dom/observer": "workspace:*",
+    "@agent-dom/oumv": "workspace:*",
+    "@agent-dom/patcher": "workspace:*",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2"
   }

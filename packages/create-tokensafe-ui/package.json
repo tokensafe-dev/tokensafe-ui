@@ -23,5 +23,17 @@
     "ai-agent"
   ],
   "author": "TokenSafe Dev",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tokensafe-dev/tokensafe-ui.git",
+    "directory": "packages/create-tokensafe-ui"
+  },
+  "homepage": "https://github.com/tokensafe-dev/tokensafe-ui#readme",
+  "bugs": {
+    "url": "https://github.com/tokensafe-dev/tokensafe-ui/issues"
+  }
 }
