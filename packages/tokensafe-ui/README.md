@@ -1,7 +1,7 @@
 # tokensafe-ui
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![npm version](https://img.shields.io/badge/npm-tokensafe--ui-orange)](https://www.npmjs.com/package/@tokensafe/ui)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tokensafe-dev/tokensafe-ui/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/tokensafe-ui.svg)](https://www.npmjs.com/package/tokensafe-ui)
 [![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.0-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
 > **The native reactive micro-framework and runtime for AI coding agents implementing OUMV: The Universal Agent-UI Protocol (Observe · Understand · Mutate · Verify).**
