@@ -1,0 +1,34 @@
+{
+  "name": "@agent-dom/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for agent-dom runtime and AST operations",
+  "type": "module",
+  "bin": {
+    "agent-dom-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@agent-dom/core": "workspace:*",
+    "@agent-dom/observer": "workspace:*",
+    "@agent-dom/patcher": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.4.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  }
+}
