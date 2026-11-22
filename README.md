@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/badge/npm-tokensafe--ui-orange)](https://www.npmjs.com/package/@tokensafe/ui)
 [![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.0-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
-> **The native reactive micro-framework and runtime for AI coding agents implementing the OUMV Protocol (Observe, Understand, Mutate, Verify).**
+> **The native reactive micro-framework and runtime for AI coding agents implementing OUMV: The Universal Agent-UI Protocol (Observe · Understand · Mutate · Verify).**
 
 Part of the **[TokenSafe](https://github.com/tokensafe-dev)** autonomous agent developer ecosystem.
 
@@ -21,11 +21,11 @@ Traditional frontend frameworks (React, Vue, Angular) were designed for human de
 - **Invisible Causality**: The agent cannot see *why* an element is in a given state or what will break if a state changes.
 - **Fragile Verification Loops**: Verifying a minor UI mutation requires launching heavy, slow browser automation suites.
 
-**`tokensafe-ui`** establishes an isomorphic reactive runtime and natively implements the **[OUMV Protocol](https://github.com/tokensafe-dev/oumv)** (Observe, Understand, Mutate, Verify) to close the autonomous feedback loop between AI agents and user interfaces.
+**`tokensafe-ui`** establishes an isomorphic reactive runtime and natively implements **[OUMV: The Universal Agent-UI Protocol](https://github.com/tokensafe-dev/oumv)** (Observe · Understand · Mutate · Verify) to close the autonomous feedback loop between AI agents and user interfaces.
 
 ---
 
-## The OUMV Protocol
+## OUMV: The Universal Agent-UI Protocol Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
