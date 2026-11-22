@@ -2,19 +2,19 @@ import type { Plugin, ViteDevServer } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { transformAgentDomJsx } from './transformer.js';
-import { applyPatch, type ComponentPatch } from '@agent-dom/patcher';
-import { testAction, activeInstances } from '@agent-dom/core';
+import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
+import { testAction, activeInstances } from '@tokensafe-ui/core';
 
-export interface AgentDomPluginOptions {
+export interface TokensafeUiPluginOptions {
   enableRpc?: boolean;
 }
 
-export function agentDom(options: AgentDomPluginOptions = {}): Plugin {
+export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
   const enableRpc = options.enableRpc !== false;
   let latestLiveSnapshot = 'view: empty\nelements: []';
 
   return {
-    name: 'agent-dom',
+    name: 'tokensafe-ui',
     enforce: 'pre',
 
     transform(code: string, id: string) {
@@ -26,7 +26,7 @@ export function agentDom(options: AgentDomPluginOptions = {}): Plugin {
             map: res.map,
           };
         } catch (err: any) {
-          this.error(`agent-dom JSX transformation error in ${id}: ${err.message}`);
+          this.error(`tokensafe-ui JSX transformation error in ${id}: ${err.message}`);
         }
       }
       return null;
@@ -36,14 +36,16 @@ export function agentDom(options: AgentDomPluginOptions = {}): Plugin {
       if (!enableRpc) return;
 
       // Handle custom client snapshot events from browser HMR
-      server.ws.on('agent-dom:snapshot', (data: any) => {
+      const handleSnapshot = (data: any) => {
         if (data && typeof data.snapshot === 'string') {
           latestLiveSnapshot = data.snapshot;
         }
-      });
+      };
+      server.ws.on('tokensafe-ui:snapshot', handleSnapshot);
+      server.ws.on('agent-dom:snapshot', handleSnapshot);
 
       // JSON-RPC / HTTP Bridge endpoint for AI agents
-      server.middlewares.use('/__agent_dom/rpc', async (req, res) => {
+      const handleRpc = async (req: any, res: any) => {
         if (req.method !== 'POST') {
           res.statusCode = 405;
           res.end(JSON.stringify({ error: 'Method not allowed' }));
@@ -205,7 +207,12 @@ export function agentDom(options: AgentDomPluginOptions = {}): Plugin {
             res.end(JSON.stringify({ error: err.message }));
           }
         });
-      });
+      };
+
+      server.middlewares.use('/__tokensafe_ui/rpc', handleRpc);
+      server.middlewares.use('/__agent_dom/rpc', handleRpc);
     },
   };
 }
+
+export const agentDom = tokensafeUi;
