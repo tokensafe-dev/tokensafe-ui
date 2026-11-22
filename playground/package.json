@@ -10,12 +10,10 @@
   },
   "dependencies": {
     "tokensafe-ui": "workspace:*",
-    "@agent-dom/core": "workspace:*",
-    "@agent-dom/observer": "workspace:*",
-    "@agent-dom/patcher": "workspace:*",
-    "@agent-dom/vite": "workspace:*"
+    "@modelcontextprotocol/sdk": "^1.32.2"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
   }

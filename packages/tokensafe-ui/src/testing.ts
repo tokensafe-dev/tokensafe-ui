@@ -1,1 +1,1 @@
-export { testAction } from '@agent-dom/core';
+export { testAction } from '@tokensafe-ui/core';

@@ -1,4 +1,4 @@
-import { defineComponent, z, h } from '@agent-dom/core';
+import { defineComponent, z, h } from 'tokensafe-ui';
 
 export const TaskBoard = defineComponent({
   id: 'task-board',

@@ -15,12 +15,12 @@ export default defineConfig({
   clean: true,
   sourcemap: false,
   noExternal: [
-    '@agent-dom/core',
-    '@agent-dom/observer',
-    '@agent-dom/oumv',
-    '@agent-dom/patcher',
-    '@agent-dom/mcp',
-    '@agent-dom/vite',
+    '@tokensafe-ui/core',
+    '@tokensafe-ui/observer',
+    '@tokensafe-ui/oumv',
+    '@tokensafe-ui/patcher',
+    '@tokensafe-ui/mcp',
+    '@tokensafe-ui/vite',
   ],
   external: [
     'zod',

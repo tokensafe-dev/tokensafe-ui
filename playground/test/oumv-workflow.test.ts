@@ -5,7 +5,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { defineComponent, z, h, mount, testAction, unmount } from 'tokensafe-ui';
 import { observe, buildDependencyGraph } from 'tokensafe-ui/observer';
-import { atomicApplySourceEdit } from '@agent-dom/mcp';
+import { atomicApplySourceEdit } from 'tokensafe-ui/mcp';
 
 describe('Real Agent Workflow: Autonomous Observe -> Understand -> Mutate -> Verify Loop', () => {
   let tmpDir: string;

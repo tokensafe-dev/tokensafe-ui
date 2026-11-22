@@ -1,1 +1,1 @@
-export * from '@agent-dom/observer';
+export * from '@tokensafe-ui/observer';

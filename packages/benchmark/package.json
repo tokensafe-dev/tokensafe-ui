@@ -1,0 +1,39 @@
+{
+  "name": "@tokensafe/benchmark",
+  "version": "0.1.0",
+  "description": "Agent Usability Benchmark (AUB): Comparing AI agent efficiency on React vs TokenSafe UI",
+  "type": "module",
+  "bin": {
+    "aub": "./dist/bin/aub.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "aub": "tsx src/bin/aub.ts",
+    "aub:run": "tsx src/bin/aub.ts run",
+    "aub:replay": "tsx src/bin/aub.ts replay",
+    "aub:report": "tsx src/bin/aub.ts report"
+  },
+  "dependencies": {
+    "tokensafe-ui": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "happy-dom": "^15.11.7",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

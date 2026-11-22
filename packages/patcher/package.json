@@ -1,5 +1,5 @@
 {
-  "name": "@agent-dom/patcher",
+  "name": "@tokensafe-ui/patcher",
   "version": "0.1.0",
   "description": "Deterministic AST surgical mutation engine for agent-dom components",
   "type": "module",

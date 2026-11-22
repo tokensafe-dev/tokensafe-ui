@@ -1,7 +1,7 @@
 {
-  "name": "@agent-dom/vite",
+  "name": "@tokensafe-ui/vite",
   "version": "0.1.0",
-  "description": "Vite plugin for agent-dom JSX transformation and live DevServer RPC bridge",
+  "description": "Vite plugin for tokensafe-ui JSX transformation and live DevServer RPC bridge",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -18,9 +18,9 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@agent-dom/core": "workspace:*",
-    "@agent-dom/observer": "workspace:*",
-    "@agent-dom/patcher": "workspace:*",
+    "@tokensafe-ui/core": "workspace:*",
+    "@tokensafe-ui/observer": "workspace:*",
+    "@tokensafe-ui/patcher": "workspace:*",
     "@babel/generator": "^7.26.5",
     "@babel/parser": "^7.26.5",
     "@babel/traverse": "^7.26.5",

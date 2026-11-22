@@ -1,1 +1,1 @@
-export * from '@agent-dom/patcher';
+export * from '@tokensafe-ui/patcher';

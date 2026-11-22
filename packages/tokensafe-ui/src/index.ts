@@ -1,1 +1,1 @@
-export * from '@agent-dom/core';
+export * from '@tokensafe-ui/core';

@@ -8,7 +8,9 @@
     "build": "pnpm -r --filter \"./packages/*\" build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --build --noEmit"
+    "typecheck": "tsc --build --noEmit",
+    "aub": "pnpm --filter @tokensafe/benchmark aub",
+    "aub:replay": "pnpm --filter @tokensafe/benchmark aub:replay"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",

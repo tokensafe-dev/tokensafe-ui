@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { agentDom } from '@agent-dom/vite';
+import { agentDom } from 'tokensafe-ui/vite';
 
 export default defineConfig({
   plugins: [agentDom()],

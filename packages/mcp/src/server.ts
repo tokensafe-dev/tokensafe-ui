@@ -281,6 +281,15 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
             validateTypeScript: true,
           });
 
+          // Invalidate module in DevServer if running
+          try {
+            await fetch(`${devServerUrl}/__agent_dom/rpc`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ method: 'reload_module', params: { filePath: resolved } }),
+            });
+          } catch {}
+
           return {
             content: [
               {
@@ -307,7 +316,29 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
       }
 
       case 'agent_dom_test_action': {
-        const { componentId, action, payload } = args as any;
+        const { componentId, action, payload, filePath } = args as any;
+
+        // 1. Try DevServer RPC
+        try {
+          const res = await fetch(`${devServerUrl}/__agent_dom/rpc`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              method: 'test_action',
+              params: { componentId, action, payload, filePath },
+            }),
+          });
+          if (res.ok) {
+            const data: any = await res.json();
+            if (data.result) {
+              return {
+                content: [{ type: 'text', text: JSON.stringify(data.result, null, 2) }],
+              };
+            }
+          }
+        } catch {
+          // DevServer offline, fallback to in-memory activeInstances
+        }
 
         try {
           const testResult = await testAction(componentId, action, payload);

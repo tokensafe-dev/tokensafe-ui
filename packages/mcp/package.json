@@ -1,10 +1,10 @@
 {
-  "name": "@agent-dom/mcp",
+  "name": "@tokensafe-ui/mcp",
   "version": "0.1.0",
-  "description": "Model Context Protocol server for agent-dom runtime and AST operations",
+  "description": "Model Context Protocol server for tokensafe-ui runtime and AST operations",
   "type": "module",
   "bin": {
-    "agent-dom-mcp": "./dist/index.js"
+    "tokensafe-mcp": "./dist/index.js"
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,9 +21,9 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@agent-dom/core": "workspace:*",
-    "@agent-dom/observer": "workspace:*",
-    "@agent-dom/patcher": "workspace:*",
+    "@tokensafe-ui/core": "workspace:*",
+    "@tokensafe-ui/observer": "workspace:*",
+    "@tokensafe-ui/patcher": "workspace:*",
     "@babel/parser": "^7.26.5",
     "@babel/traverse": "^7.26.5",
     "@babel/types": "^7.26.5",

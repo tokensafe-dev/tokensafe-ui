@@ -1,7 +1,7 @@
 {
-  "name": "@agent-dom/oumv",
+  "name": "@tokensafe-ui/oumv",
   "version": "0.3.0",
-  "description": "Native OUMV Protocol Adapter for agent-dom runtime",
+  "description": "Native OUMV Protocol Adapter for tokensafe-ui runtime",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -18,9 +18,9 @@
     "dev": "tsup --watch"
   },
   "dependencies": {
-    "@agent-dom/core": "workspace:*",
-    "@agent-dom/observer": "workspace:*",
-    "@agent-dom/mcp": "workspace:*",
+    "@tokensafe-ui/core": "workspace:*",
+    "@tokensafe-ui/observer": "workspace:*",
+    "@tokensafe-ui/mcp": "workspace:*",
     "@babel/parser": "^7.26.2"
   },
   "devDependencies": {

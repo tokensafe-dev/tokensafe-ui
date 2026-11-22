@@ -1,11 +1,19 @@
-import { mount } from '@agent-dom/core';
-import { getSemanticSnapshot } from '@agent-dom/observer';
+import { mount } from 'tokensafe-ui';
+import { getSemanticSnapshot } from 'tokensafe-ui/observer';
 import { TaskBoard } from './App.js';
+import { OrderCheckout } from './OrderCheckout.js';
 
 const appContainer = document.getElementById('app');
 if (appContainer) {
-  const instance = TaskBoard();
-  mount(instance, appContainer);
+  const taskBoardInstance = TaskBoard();
+  const orderCheckoutInstance = OrderCheckout();
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'playground-root';
+  appContainer.appendChild(wrapper);
+
+  mount(taskBoardInstance, wrapper);
+  mount(orderCheckoutInstance, wrapper);
 
   const snapshot = getSemanticSnapshot(appContainer);
   console.log('--- Initial AgentDOM Semantic Snapshot ---');

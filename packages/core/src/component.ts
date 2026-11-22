@@ -15,7 +15,10 @@ import type {
 } from './types.js';
 
 // Global registry for live component instances (used by observer & patcher)
-export const activeInstances = new Map<string, ComponentInstance<any, any, any, any>>();
+const GLOBAL_INSTANCES_KEY = Symbol.for('tokensafe-ui.activeInstances');
+export const activeInstances: Map<string, ComponentInstance<any, any, any, any>> =
+  (globalThis as any)[GLOBAL_INSTANCES_KEY] ||
+  ((globalThis as any)[GLOBAL_INSTANCES_KEY] = new Map<string, ComponentInstance<any, any, any, any>>());
 
 export function defineComponent<
   TSchema extends StateSchema,

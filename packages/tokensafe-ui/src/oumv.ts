@@ -1,1 +1,1 @@
-export * from '@agent-dom/oumv';
+export * from '@tokensafe-ui/oumv';

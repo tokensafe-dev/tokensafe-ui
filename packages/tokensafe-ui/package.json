@@ -86,12 +86,12 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@agent-dom/core": "workspace:*",
-    "@agent-dom/mcp": "workspace:*",
-    "@agent-dom/observer": "workspace:*",
-    "@agent-dom/oumv": "workspace:*",
-    "@agent-dom/patcher": "workspace:*",
-    "@agent-dom/vite": "workspace:*",
+    "@tokensafe-ui/core": "workspace:*",
+    "@tokensafe-ui/mcp": "workspace:*",
+    "@tokensafe-ui/observer": "workspace:*",
+    "@tokensafe-ui/oumv": "workspace:*",
+    "@tokensafe-ui/patcher": "workspace:*",
+    "@tokensafe-ui/vite": "workspace:*",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2"
   }

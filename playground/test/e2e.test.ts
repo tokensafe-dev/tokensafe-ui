@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { mount, renderToString } from '@agent-dom/core';
-import { getSemanticSnapshot } from '@agent-dom/observer';
-import { applyPatch } from '@agent-dom/patcher';
+import { mount, renderToString } from 'tokensafe-ui';
+import { getSemanticSnapshot } from 'tokensafe-ui/observer';
+import { applyPatch } from 'tokensafe-ui/patcher';
 import { TaskBoard } from '../src/App.js';
 
 describe('agent-dom End-to-End Agent Loop', () => {
@@ -35,7 +35,7 @@ describe('agent-dom End-to-End Agent Loop', () => {
 
     // 4. Agent Hands (Surgical AST patch to add 'completeAll' action & button)
     const sourceCode = `
-import { defineComponent, z, h } from '@agent-dom/core';
+import { defineComponent, z, h } from 'tokensafe-ui';
 
 export const TaskBoard = defineComponent({
   id: 'task-board',
