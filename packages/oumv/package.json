@@ -1,0 +1,30 @@
+{
+  "name": "@agent-dom/oumv",
+  "version": "0.3.0",
+  "description": "Native OUMV Protocol Adapter for agent-dom runtime",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "@agent-dom/core": "workspace:*",
+    "@agent-dom/observer": "workspace:*",
+    "@agent-dom/mcp": "workspace:*",
+    "@babel/parser": "^7.26.2"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  }
+}
