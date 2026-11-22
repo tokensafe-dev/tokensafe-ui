@@ -6,3 +6,4 @@ export * from './types.js';
 export * from './component.js';
 export * from './dom.js';
 export * from './control.js';
+export * from './testing.js';
