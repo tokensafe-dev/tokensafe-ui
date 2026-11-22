@@ -38,6 +38,204 @@ export function mount(instance: ComponentInstance<any, any, any>, container: HTM
   return wrapper;
 }
 
+export interface FormBindingProps {
+  value?: any;
+  checked?: boolean;
+  onInput?: (e: any) => void;
+  onChange?: (e: any) => void;
+}
+
+/**
+ * Two-way form binding helper for inputs, checkboxes, and select elements.
+ * Supports:
+ * - bind(emit.setTitle, state.title)
+ * - bind(emit, 'title', state)
+ * - bind(signal)
+ */
+export function bind<T = any>(
+  target: any,
+  valueOrKey?: any,
+  stateObj?: any
+): FormBindingProps {
+  // Case 1: Raw Signal passed: bind(mySignal)
+  if (target && typeof target === 'object' && 'value' in target && typeof target.peek === 'function') {
+    const sig = target as Signal<any>;
+    const isBool = typeof sig.peek() === 'boolean';
+    if (isBool) {
+      return {
+        checked: sig.peek(),
+        onChange: (e: any) => {
+          sig.value = e && e.target !== undefined ? e.target.checked : Boolean(e);
+        },
+      };
+    }
+    return {
+      value: sig.peek(),
+      onInput: (e: any) => {
+        sig.value = e && e.target !== undefined ? e.target.value : e;
+      },
+      onChange: (e: any) => {
+        sig.value = e && e.target !== undefined ? e.target.value : e;
+      },
+    };
+  }
+
+  // Case 2: Component Emitters object: bind(emit, 'title', state)
+  if (typeof target === 'object' && typeof valueOrKey === 'string' && stateObj) {
+    const key = valueOrKey;
+    const actionName =
+      target[`set${key.charAt(0).toUpperCase()}${key.slice(1)}`] ||
+      target[key];
+    const val = stateObj[key];
+    return bind(actionName, val);
+  }
+
+  // Case 3: Action emitter function and value: bind(emit.setTitle, state.title)
+  if (typeof target === 'function') {
+    const emitter = target;
+    const isBool = typeof valueOrKey === 'boolean';
+    if (isBool) {
+      return {
+        checked: Boolean(valueOrKey),
+        onChange: (e: any) => {
+          emitter(e && e.target !== undefined ? e.target.checked : Boolean(e));
+        },
+      };
+    }
+
+    return {
+      value: valueOrKey !== undefined && valueOrKey !== null ? valueOrKey : '',
+      onInput: (e: any) => {
+        const val =
+          e && e.target !== undefined
+            ? e.target.type === 'checkbox'
+              ? e.target.checked
+              : e.target.value
+            : e;
+        emitter(val);
+      },
+      onChange: (e: any) => {
+        const val =
+          e && e.target !== undefined
+            ? e.target.type === 'checkbox'
+              ? e.target.checked
+              : e.target.value
+            : e;
+        emitter(val);
+      },
+    };
+  }
+
+  return {};
+}
+
+/**
+ * Isomorphic Client-Side Hydration Engine.
+ * Attaches event listeners and reactive signal bindings to server-rendered HTML nodes
+ * without wiping the container or recreating DOM elements.
+ */
+export function hydrate(
+  instance: ComponentInstance<any, any, any>,
+  container: HTMLElement
+): HTMLElement {
+  const existingRoot = container.firstElementChild;
+  if (!existingRoot) {
+    return mount(instance, container);
+  }
+
+  try {
+    hydrateNode(existingRoot, instance.vnode, instance);
+    instance.rootElement = existingRoot as HTMLElement;
+    return existingRoot as HTMLElement;
+  } catch (err: any) {
+    console.warn(`[TokenSafe UI Hydration Warning] Mismatch: ${err.message}. Re-mounting on client.`);
+    return mount(instance, container);
+  }
+}
+
+function hydrateNode(
+  domNode: Node,
+  vnode: AgentChild,
+  instance: ComponentInstance<any, any, any>
+): void {
+  if (!vnode || typeof vnode !== 'object') return;
+
+  if (typeof vnode.type === 'function') {
+    return;
+  }
+
+  if (domNode.nodeType === 1 && typeof vnode.type === 'string') {
+    const el = domNode as HTMLElement;
+
+    // Attach event listeners & reactive property effects
+    for (const [key, value] of Object.entries(vnode.props || {})) {
+      if (key === 'children') continue;
+
+      if (key.startsWith('on') && typeof value === 'function') {
+        const eventName = key.slice(2).toLowerCase();
+        el.addEventListener(eventName, value);
+      } else if (key === 'class' || key === 'className') {
+        if (typeof value === 'function') {
+          const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
+          effect(() => {
+            el.className = String(value());
+          }, {
+            name: `dom:${agentId}.class`,
+            kind: 'dom_binding',
+          });
+        }
+      } else if (typeof value === 'function') {
+        const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
+        effect(() => {
+          const val = value();
+          if (typeof val === 'boolean') {
+            if (val) el.setAttribute(key, '');
+            else el.removeAttribute(key);
+          } else {
+            el.setAttribute(key, String(val));
+          }
+        }, {
+          name: `dom:${agentId}.${key}`,
+          kind: 'dom_binding',
+        });
+      }
+    }
+
+    // Hydrate children
+    const childNodes = Array.from(el.childNodes);
+    const vnodeChildren = vnode.children || [];
+    let childDomIdx = 0;
+
+    for (let i = 0; i < vnodeChildren.length; i++) {
+      const vChild = vnodeChildren[i];
+      if (typeof vChild === 'function') {
+        // Find matching text node
+        const targetTextNode = childNodes[childDomIdx];
+        if (targetTextNode && targetTextNode.nodeType === 3) {
+          const parentAgentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
+          effect(() => {
+            targetTextNode.textContent = String(vChild());
+          }, {
+            name: `dom:${parentAgentId}.text`,
+            kind: 'dom_binding',
+          });
+          childDomIdx++;
+        }
+      } else if (vChild && typeof vChild === 'object' && 'type' in vChild) {
+        while (childDomIdx < childNodes.length && childNodes[childDomIdx].nodeType !== 1) {
+          childDomIdx++;
+        }
+        if (childDomIdx < childNodes.length) {
+          hydrateNode(childNodes[childDomIdx], vChild, instance);
+          childDomIdx++;
+        }
+      } else if (typeof vChild === 'string' || typeof vChild === 'number') {
+        childDomIdx++;
+      }
+    }
+  }
+}
+
 function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any>): Node {
   if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
     return document.createTextNode(String(node));
@@ -260,8 +458,16 @@ export function renderToString(instance: ComponentInstance<any, any, any>): stri
 }
 
 function vnodeToString(node: AgentChild): string {
-  if (typeof node === 'string' || typeof node === 'number') {
+  if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
     return escapeHtml(String(node));
+  }
+  if (typeof node === 'function') {
+    try {
+      const val = (node as any)();
+      return vnodeToString(val);
+    } catch {
+      return '';
+    }
   }
   if (!node || typeof node !== 'object') {
     return '';
@@ -302,8 +508,15 @@ function vnodeToString(node: AgentChild): string {
   }
 
   const attrs: string[] = [];
-  for (const [key, value] of Object.entries(node.props)) {
+  for (let [key, value] of Object.entries(node.props)) {
     if (key === 'children' || key.startsWith('on')) continue;
+    if (typeof value === 'function') {
+      try {
+        value = value();
+      } catch {
+        continue;
+      }
+    }
     if (key === 'class' || key === 'className') {
       attrs.push(`class="${escapeHtml(String(value))}"`);
     } else if (typeof value === 'boolean') {

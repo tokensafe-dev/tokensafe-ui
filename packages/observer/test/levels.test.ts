@@ -79,11 +79,19 @@ describe('Progressive Context Disclosure (Observer L0–L4)', () => {
     expect(l2.state.status.current).toBe('Online');
   });
 
-  it('L3 (Source): generates line-annotated source code with agent-id map', () => {
-    const sampleSource = `export const Dashboard = defineComponent({
+  it('L3 (Source): extracts isolated component AST slice and maps agent IDs', () => {
+    const multiComponentFile = `import { defineComponent } from 'tokensafe-ui';
+
+export const Header = defineComponent({
+  id: 'header-view',
+  render: () => <div data-agent-id="header-view:root">Header</div>
+});
+
+export const Dashboard = defineComponent({
   id: 'dashboard-view',
   render: () => <button data-agent-id="dashboard-view:btn-away">Away</button>
-});`;
+});
+`;
 
     const instance = Dashboard();
     const container = document.createElement('div');
@@ -92,13 +100,31 @@ describe('Progressive Context Disclosure (Observer L0–L4)', () => {
     const l3 = observe(container.firstElementChild as HTMLElement, {
       level: 'L3',
       componentId: 'dashboard-view',
-      sourceCode: sampleSource,
+      sourceCode: multiComponentFile,
       format: 'json',
     }) as any;
 
     expect(l3.level).toBe('L3');
-    expect(l3.lines[0]).toContain('01 | export const Dashboard');
-    expect(l3.agentIdLineMap['dashboard-view:btn-away']).toBe(3);
+    expect(l3.startLine).toBe(8);
+    expect(l3.isolatedSource).toContain("id: 'dashboard-view'");
+    expect(l3.isolatedSource).not.toContain("id: 'header-view'");
+    expect(l3.agentIdLineMap['dashboard-view:btn-away']).toBe(10);
+  });
+
+  it('L3 (Source): synthesizes isolated component contract when sourceCode is omitted', () => {
+    const instance = Dashboard();
+    const container = document.createElement('div');
+    mount(instance, container);
+
+    const l3 = observe(container.firstElementChild as HTMLElement, {
+      level: 'L3',
+      componentId: 'dashboard-view',
+      format: 'json',
+    }) as any;
+
+    expect(l3.level).toBe('L3');
+    expect(l3.isolatedSource).toContain("id: 'dashboard-view'");
+    expect(l3.isolatedSource).toContain("setStatus:");
   });
 
   it('L4 (Traces): provides runtime causality telemetry of actions and signal changes', async () => {

@@ -1,5 +1,12 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import * as parser from '@babel/parser';
+import _traverse from '@babel/traverse';
+import * as t from '@babel/types';
 import { activeInstances } from '@agent-dom/core';
 import type { SemanticElement, SemanticSnapshot } from './observer.js';
+
+const traverse = (_traverse as any).default || _traverse;
 
 export type ObservationLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4';
 
@@ -7,6 +14,8 @@ export interface ObservationOptions {
   level?: ObservationLevel;
   format?: 'yaml' | 'sexp' | 'json';
   componentId?: string;
+  filePath?: string;
+  projectRoot?: string;
   sourceCode?: string;
   maxElements?: number;
 }
@@ -30,7 +39,11 @@ export interface ContractSnapshot {
 export interface SourceSnapshot {
   level: 'L3';
   componentId: string;
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
   lines: string[];
+  isolatedSource: string;
   agentIdLineMap: Record<string, number>;
 }
 
@@ -220,22 +233,215 @@ function buildL2Contract(root: HTMLElement, options: ObservationOptions): Contra
 function buildL3Source(root: HTMLElement, options: ObservationOptions): SourceSnapshot {
   const rootAgentId = root.getAttribute('data-agent-id') || 'root';
   const componentId = options.componentId || rootAgentId.split(':')[0] || 'app';
-  const source = options.sourceCode || `// Component: ${componentId}\n// Use agent_dom_inspect to load source from disk.`;
+  const instance = activeInstances.get(componentId);
 
-  const lines = source.split('\n').map((l, i) => `${String(i + 1).padStart(2, '0')} | ${l}`);
+  let source = options.sourceCode;
+  let resolvedFilePath = options.filePath || (instance?.config as any)?.filePath;
+
+  // 1. Try reading from designated filePath
+  if (!source && resolvedFilePath && typeof fs !== 'undefined' && fs.existsSync) {
+    try {
+      if (fs.existsSync(resolvedFilePath)) {
+        source = fs.readFileSync(resolvedFilePath, 'utf-8');
+      }
+    } catch {}
+  }
+
+  // 2. Try searching workspace files if in Node.js environment
+  if (!source && typeof process !== 'undefined') {
+    const rootDir = options.projectRoot || process.cwd();
+    const found = searchComponentFile(rootDir, componentId);
+    if (found) {
+      resolvedFilePath = found.filePath;
+      source = found.source;
+    }
+  }
+
+  // 3. Extract isolated component slice using AST
+  if (source) {
+    try {
+      return extractIsolatedSourceAST(source, componentId, resolvedFilePath);
+    } catch {}
+  }
+
+  // 4. Fallback: synthesize isolated component contract if disk file is unavailable
+  return buildSyntheticSourceSnapshot(componentId, instance, resolvedFilePath);
+}
+
+function searchComponentFile(
+  dir: string,
+  componentId: string
+): { filePath: string; source: string } | null {
+  try {
+    if (!fs.existsSync(dir)) return null;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') {
+        continue;
+      }
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = searchComponentFile(fullPath, componentId);
+        if (found) return found;
+      } else if (
+        entry.isFile() &&
+        (entry.name.endsWith('.tsx') ||
+          entry.name.endsWith('.ts') ||
+          entry.name.endsWith('.jsx') ||
+          entry.name.endsWith('.js'))
+      ) {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        if (
+          content.includes(`id: '${componentId}'`) ||
+          content.includes(`id: "${componentId}"`)
+        ) {
+          return { filePath: fullPath, source: content };
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function extractIsolatedSourceAST(
+  fullSource: string,
+  componentId: string,
+  filePath?: string
+): SourceSnapshot {
+  const ast = parser.parse(fullSource, {
+    sourceType: 'module',
+    plugins: ['typescript', 'jsx'],
+  });
+
+  let startLine = 1;
+  let endLine = fullSource.split('\n').length;
+  let found = false;
   const agentIdLineMap: Record<string, number> = {};
 
-  source.split('\n').forEach((line, idx) => {
-    const match = line.match(/data-agent-id=["']([^"']+)["']/);
-    if (match) {
-      agentIdLineMap[match[1]] = idx + 1;
-    }
+  traverse(ast, {
+    CallExpression(p: any) {
+      const callee = p.node.callee;
+      const isDefine =
+        (t.isIdentifier(callee) && callee.name === 'defineComponent') ||
+        (t.isMemberExpression(callee) &&
+          t.isIdentifier(callee.property) &&
+          callee.property.name === 'defineComponent');
+
+      if (!isDefine || p.node.arguments.length === 0) return;
+
+      const configArg = p.node.arguments[0];
+      if (!t.isObjectExpression(configArg)) return;
+
+      const idProp = configArg.properties.find(
+        (prop: any) =>
+          t.isObjectProperty(prop) &&
+          t.isIdentifier(prop.key) &&
+          prop.key.name === 'id' &&
+          t.isStringLiteral(prop.value) &&
+          prop.value.value === componentId
+      );
+
+      if (idProp) {
+        found = true;
+        // Locate enclosing declaration (e.g. export const X = defineComponent(...))
+        const parentDecl = p.findParent(
+          (parent: any) =>
+            parent.isExportNamedDeclaration() ||
+            parent.isVariableDeclaration() ||
+            parent.isDeclaration()
+        );
+        const targetNode = parentDecl ? parentDecl.node : p.node;
+        if (targetNode.loc) {
+          startLine = targetNode.loc.start.line;
+          endLine = targetNode.loc.end.line;
+        }
+
+        // Search for data-agent-id inside the component definition
+        p.traverse({
+          JSXAttribute(attrPath: any) {
+            if (attrPath.node.name.name === 'data-agent-id') {
+              const val = attrPath.node.value;
+              if (t.isStringLiteral(val) && attrPath.node.loc) {
+                agentIdLineMap[val.value] = attrPath.node.loc.start.line;
+              }
+            }
+          },
+          ObjectProperty(objPropPath: any) {
+            const key = objPropPath.node.key;
+            const isAgentIdKey =
+              (t.isStringLiteral(key) && key.value === 'data-agent-id') ||
+              (t.isIdentifier(key) && key.name === 'data-agent-id');
+            if (isAgentIdKey && t.isStringLiteral(objPropPath.node.value) && objPropPath.node.loc) {
+              agentIdLineMap[objPropPath.node.value.value] = objPropPath.node.loc.start.line;
+            }
+          },
+        });
+      }
+    },
   });
+
+  const allLines = fullSource.split('\n');
+  const isolatedLines = found ? allLines.slice(startLine - 1, endLine) : allLines;
+  const formattedLines = isolatedLines.map(
+    (l, i) => `${String(startLine + i).padStart(2, '0')} | ${l}`
+  );
 
   return {
     level: 'L3',
     componentId,
-    lines,
+    filePath,
+    startLine,
+    endLine,
+    lines: formattedLines,
+    isolatedSource: isolatedLines.join('\n'),
+    agentIdLineMap,
+  };
+}
+
+function buildSyntheticSourceSnapshot(
+  componentId: string,
+  instance: any,
+  filePath?: string
+): SourceSnapshot {
+  const stateKeys = Object.keys(instance?.signals || {});
+  const actionKeys = Object.keys(instance?.config?.actions || {});
+  const effectKeys = Object.keys(instance?.config?.effects || {});
+
+  const syntheticLines = [
+    `// [TokenSafe Isolated Component Spec: ${componentId}]`,
+    `export const ${componentId.replace(/[^a-zA-Z0-9]/g, '_')} = defineComponent({`,
+    `  id: '${componentId}',`,
+    `  state: {`,
+    ...stateKeys.map((k) => `    ${k}: /* ${JSON.stringify(instance?.signals?.[k]?.peek())} */,`),
+    `  },`,
+    `  actions: {`,
+    ...actionKeys.map((a) => `    ${a}: (state, payload) => ({ ...state }),`),
+    `  },`,
+    ...(effectKeys.length > 0
+      ? [
+          `  effects: {`,
+          ...effectKeys.map((e) => `    ${e}: async ({ dispatch }) => {},`),
+          `  },`,
+        ]
+      : []),
+    `  render({ state, emit }) {`,
+    `    return h('div', { 'data-agent-id': '${componentId}:root' });`,
+    `  }`,
+    `});`,
+  ];
+
+  const agentIdLineMap: Record<string, number> = {
+    [`${componentId}:root`]: syntheticLines.length - 2,
+  };
+
+  return {
+    level: 'L3',
+    componentId,
+    filePath,
+    startLine: 1,
+    endLine: syntheticLines.length,
+    lines: syntheticLines.map((l, i) => `${String(i + 1).padStart(2, '0')} | ${l}`),
+    isolatedSource: syntheticLines.join('\n'),
     agentIdLineMap,
   };
 }

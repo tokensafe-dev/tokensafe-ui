@@ -8,7 +8,7 @@ import {
   observe,
   buildDependencyGraph,
 } from '@agent-dom/observer';
-import { validateWorkspacePath, checkSecretLeak } from '@agent-dom/mcp';
+import { validateWorkspacePath, checkSecretLeak, atomicApplySourceEdit } from '@agent-dom/mcp';
 
 export interface OumvAdapterConfig {
   projectRoot?: string;
@@ -132,46 +132,16 @@ export function createAgentDomAdapter(config: OumvAdapterConfig = {}) {
       expectedVersion: string;
     }) {
       const resolved = validateWorkspacePath(params.filePath, projectRoot);
-      if (!fs.existsSync(resolved)) {
-        throw new Error(`File not found: ${resolved}`);
-      }
-
-      const currentContent = fs.readFileSync(resolved, 'utf-8');
-      const currentVersion =
-        'sha256:' +
-        crypto.createHash('sha256').update(currentContent).digest('hex');
-
-      if (params.expectedVersion && currentVersion !== params.expectedVersion) {
-        throw new Error(
-          `CONFLICT_DETECTED: File modified concurrently. Expected '${params.expectedVersion}', got '${currentVersion}'`
-        );
-      }
-
-      // Pre-flight AST syntax check
-      try {
-        parser.parse(params.source, {
-          sourceType: 'module',
-          plugins: ['typescript', 'jsx'],
-        });
-      } catch (err: any) {
-        throw new Error(`SYNTAX_ERROR: ${err.message}`);
-      }
-
-      // Security check
-      const leak = checkSecretLeak(params.source);
-      if (leak.hasLeak) {
-        throw new Error(`SECURITY_VIOLATION: ${leak.reason}`);
-      }
-
-      fs.writeFileSync(resolved, params.source, 'utf-8');
-      const newVersion =
-        'sha256:' + crypto.createHash('sha256').update(params.source).digest('hex');
+      const res = atomicApplySourceEdit(resolved, params.source, {
+        expectedVersion: params.expectedVersion,
+        validateTypeScript: true,
+      });
 
       return {
         success: true,
-        filePath: path.relative(projectRoot, resolved),
-        version: newVersion,
-        message: 'Successfully applied OCC source edit',
+        filePath: path.relative(projectRoot, res.filePath),
+        version: res.version,
+        message: res.message,
       };
     },
 

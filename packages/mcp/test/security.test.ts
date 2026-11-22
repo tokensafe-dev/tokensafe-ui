@@ -15,6 +15,16 @@ describe('MCP Security Guard', () => {
     }).toThrow('Security Violation: Path traversal blocked');
   });
 
+  it('blocks sibling directory traversal with prefix match (/project-evil vs /project)', () => {
+    expect(() => {
+      validateWorkspacePath('/Users/test/project-evil/file.ts', root);
+    }).toThrow('Security Violation: Path traversal blocked');
+
+    expect(() => {
+      validateWorkspacePath('../project-sibling/file.ts', root);
+    }).toThrow('Security Violation: Path traversal blocked');
+  });
+
   it('detects and intercepts hardcoded private keys', () => {
     const code = ['const key = "', '-----BEGIN PRIVATE KEY-----', '\\nMII...'].join('');
     const check = checkSecretLeak(code);

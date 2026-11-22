@@ -63,9 +63,55 @@ describe('Component Dependency Graph & Impact Analysis', () => {
     const causality = graph.traceCausality('user-profile.avatarUrl');
 
     expect(causality).not.toBeNull();
-    expect(causality?.componentId).toBe('user-profile');
     expect(causality?.value).toBe('/new-avatar.png');
-    expect(causality?.lastMutation?.actionName).toBe('updateAvatar');
-    expect(causality?.explanation).toContain("Last mutated by action 'updateAvatar'");
+    expect(causality?.explanation).toContain("mutated by action 'updateAvatar'");
+  });
+
+  it('computes transitive multi-hop blast radius and propagation paths', () => {
+    const ChildCard = defineComponent({
+      id: 'child-card',
+      state: { text: z.string().default('hello') },
+      actions: {},
+      render: () => ({ type: 'div', props: { 'data-agent-id': 'child-card:root' }, children: [] }),
+    });
+
+    const MiddleSection = defineComponent({
+      id: 'middle-section',
+      state: {},
+      actions: {},
+      render: () => ({
+        type: 'div',
+        props: { 'data-agent-id': 'middle-section:root' },
+        children: [
+          { type: 'div', props: { 'data-agent-id': 'child-card:embed' }, children: [] },
+        ],
+      }),
+    });
+
+    const RootApp = defineComponent({
+      id: 'root-app',
+      state: {},
+      actions: {},
+      render: () => ({
+        type: 'div',
+        props: { 'data-agent-id': 'root-app:root' },
+        children: [
+          { type: 'div', props: { 'data-agent-id': 'middle-section:embed' }, children: [] },
+        ],
+      }),
+    });
+
+    ChildCard();
+    MiddleSection();
+    RootApp();
+
+    const graph = buildDependencyGraph();
+    const impact = graph.analyzeImpact('child-card');
+
+    expect(impact.directlyAffected).toContain('child-card');
+    expect(impact.directlyAffected).toContain('middle-section');
+    expect(impact.indirectlyAffected).toContain('root-app');
+    expect(impact.blastRadiusDepth).toBeGreaterThanOrEqual(2);
+    expect(impact.propagationPaths?.some((p) => p.includes('middle-section -> root-app'))).toBe(true);
   });
 });

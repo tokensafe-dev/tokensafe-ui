@@ -75,12 +75,37 @@ Progressive context disclosure guarantees the agent never wastes tokens:
 
 ---
 
+## Installation
+
+```bash
+# Using pnpm
+pnpm add tokensafe-ui zod
+
+# Using npm
+npm install tokensafe-ui zod
+
+# Or using the scoped package
+pnpm add @tokensafe/ui zod
+```
+
+### Quickstart Scaffolding
+
+Create a new TokenSafe UI project with pre-configured Vite, TypeScript, and AI Agent MCP integration:
+
+```bash
+pnpm create tokensafe-ui my-app
+# or
+npm create tokensafe-ui my-app
+```
+
+---
+
 ## Quick Example
 
 ### Defining an Agent-Friendly Component
 
 ```typescript
-import { defineComponent, z } from 'agent-dom';
+import { defineComponent, z, bind } from 'tokensafe-ui';
 
 export const TaskItem = defineComponent({
   id: 'task-item',
@@ -116,14 +141,13 @@ export const TaskItem = defineComponent({
     },
   },
 
-  // 4. Pure Projection
+  // 4. Pure Projection with Two-Way Binding
   render: ({ state, emit }) => (
     <div class="task-card" data-agent-id="root">
       <input
         type="checkbox"
         data-agent-id="checkbox"
-        checked={state.completed}
-        onChange={emit.toggle}
+        {...bind(emit.toggle, state.completed)}
       />
       <span data-agent-id="title" class={state.completed ? 'done' : ''}>
         {state.title}
@@ -139,7 +163,7 @@ export const TaskItem = defineComponent({
 ### Inspecting the Semantic Snapshot (Agent Vision)
 
 ```typescript
-import { getSemanticSnapshot } from 'agent-dom/observer';
+import { getSemanticSnapshot } from 'tokensafe-ui/observer';
 
 const snapshot = getSemanticSnapshot(document.getElementById('app'));
 console.log(snapshot);
@@ -180,7 +204,9 @@ elements:
 - [ ] **P3: Ecosystem & Benchmarking**
   - [ ] AUI-Bench autonomous agent benchmark suite.
   - [ ] React / Vue adapters for the OUMV protocol.
-  - [ ] Isomorphic SSR hydration runtime.
+  - [x] Isomorphic SSR hydration runtime (`renderToString` + `hydrate`).
+  - [x] Two-way form binding helpers (`bind`).
+  - [x] Scaffolding CLI (`create-tokensafe-ui`).
 
 ---
 

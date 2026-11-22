@@ -24,7 +24,8 @@ export function validateWorkspacePath(inputPath: string, projectRoot: string): s
     }
   } catch {}
 
-  if (!resolvedTarget.startsWith(canonicalRoot)) {
+  const rootWithSep = canonicalRoot.endsWith(path.sep) ? canonicalRoot : canonicalRoot + path.sep;
+  if (resolvedTarget !== canonicalRoot && !resolvedTarget.startsWith(rootWithSep)) {
     throw new Error(
       `Security Violation: Path traversal blocked. Target '${inputPath}' escapes workspace root '${projectRoot}'.`
     );

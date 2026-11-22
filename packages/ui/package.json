@@ -1,0 +1,47 @@
+{
+  "name": "@tokensafe/ui",
+  "version": "0.1.0",
+  "description": "Deterministic, token-efficient frontend reactive micro-framework for AI coding agents",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./observer": {
+      "types": "./dist/observer.d.ts",
+      "import": "./dist/observer.js",
+      "require": "./dist/observer.cjs"
+    },
+    "./oumv": {
+      "types": "./dist/oumv.d.ts",
+      "import": "./dist/oumv.js",
+      "require": "./dist/oumv.cjs"
+    },
+    "./patcher": {
+      "types": "./dist/patcher.d.ts",
+      "import": "./dist/patcher.js",
+      "require": "./dist/patcher.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "require": "./dist/testing.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "dependencies": {
+    "tokensafe-ui": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2"
+  }
+}

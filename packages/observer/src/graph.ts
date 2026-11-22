@@ -1,5 +1,11 @@
 import { activeInstances } from '@agent-dom/core';
 
+export interface ReactiveEdge {
+  source: string; // e.g. "auth.user"
+  target: string; // e.g. "header"
+  kind: 'signal_subscription' | 'vnode_child' | 'action_dispatch';
+}
+
 export interface ComponentNode {
   id: string;
   stateKeys: string[];
@@ -14,6 +20,7 @@ export interface ComponentNode {
       subscribers: { id: string; name?: string; kind: string }[];
     }
   >;
+  reactiveEdges?: ReactiveEdge[];
 }
 
 export interface ImpactAnalysis {
@@ -21,6 +28,8 @@ export interface ImpactAnalysis {
   directlyAffected: string[];
   indirectlyAffected: string[];
   safeComponents: string[];
+  blastRadiusDepth?: number;
+  propagationPaths?: string[];
   recommendation: string;
 }
 
@@ -94,9 +103,32 @@ export function buildDependencyGraph(): DependencyGraph {
 
     for (const childId of childComponentIds) {
       if (childId !== id && components[childId]) {
-        components[id].dependencies.push(childId);
+        if (!components[id].dependencies.includes(childId)) {
+          components[id].dependencies.push(childId);
+        }
         if (!components[childId].dependents.includes(id)) {
           components[childId].dependents.push(id);
+        }
+      }
+    }
+  }
+
+  // 3. Discover dynamic cross-component signal subscriptions
+  for (const [id, comp] of Object.entries(components)) {
+    for (const [stateKey, sigData] of Object.entries(comp.signals)) {
+      for (const sub of sigData.subscribers) {
+        for (const otherId of Object.keys(components)) {
+          if (
+            otherId !== id &&
+            (sub.name?.startsWith(`${otherId}:`) || sub.id?.startsWith(`${otherId}:`))
+          ) {
+            if (!components[otherId].dependencies.includes(id)) {
+              components[otherId].dependencies.push(id);
+            }
+            if (!components[id].dependents.includes(otherId)) {
+              components[id].dependents.push(otherId);
+            }
+          }
         }
       }
     }
@@ -108,42 +140,82 @@ export function buildDependencyGraph(): DependencyGraph {
     analyzeImpact(target: string): ImpactAnalysis {
       const directlyAffected = new Set<string>();
       const indirectlyAffected = new Set<string>();
+      const paths: string[] = [];
 
-      // Check if target is a component ID
+      let seedComponents: string[] = [];
+      let sourceLabel = target;
+
       if (components[target]) {
+        seedComponents = [target];
         directlyAffected.add(target);
-        for (const dep of components[target].dependents) {
-          directlyAffected.add(dep);
-        }
       } else {
-        // Target is a state key (e.g. "user" or "count")
+        let targetComp = '';
+        let targetKey = target;
+        if (target.includes('.')) {
+          const parts = target.split('.');
+          targetComp = parts[0];
+          targetKey = parts.slice(1).join('.');
+        }
+
         for (const [id, comp] of Object.entries(components)) {
-          if (comp.stateKeys.includes(target)) {
+          if ((!targetComp || targetComp === id) && comp.stateKeys.includes(targetKey)) {
+            seedComponents.push(id);
             directlyAffected.add(id);
-            for (const dep of comp.dependents) {
-              indirectlyAffected.add(dep);
+            sourceLabel = `${id}.${targetKey}`;
+          }
+        }
+      }
+
+      for (const seed of seedComponents) {
+        for (const dep of components[seed]?.dependents || []) {
+          directlyAffected.add(dep);
+          paths.push(`${sourceLabel} -> ${dep}`);
+
+          const queue: Array<{ node: string; path: string[]; depth: number }> = [
+            { node: dep, path: [sourceLabel, dep], depth: 1 },
+          ];
+          const visited = new Set<string>([seed, dep]);
+
+          while (queue.length > 0) {
+            const current = queue.shift()!;
+            for (const nextDep of components[current.node]?.dependents || []) {
+              if (!visited.has(nextDep)) {
+                visited.add(nextDep);
+                indirectlyAffected.add(nextDep);
+                const nextPath = [...current.path, nextDep];
+                paths.push(nextPath.join(' -> '));
+                queue.push({ node: nextDep, path: nextPath, depth: current.depth + 1 });
+              }
             }
           }
         }
       }
 
       const allAffected = new Set([...directlyAffected, ...indirectlyAffected]);
-      const safeComponents = Object.keys(components).filter(
-        (id) => !allAffected.has(id)
-      );
+      const safeComponents = Object.keys(components).filter((id) => !allAffected.has(id));
 
-      const affectedList = Array.from(directlyAffected);
+      const directList = Array.from(directlyAffected);
       const indirectList = Array.from(indirectlyAffected);
+      const blastDepth = paths.reduce((max, p) => Math.max(max, p.split(' -> ').length), 1);
+
+      let recommendation = `Target '${target}' is not bound to any active components. Safe to introduce or edit.`;
+      if (directList.length > 0) {
+        recommendation = `Editing '${target}' directly impacts: [${directList.join(', ')}]`;
+        if (indirectList.length > 0) {
+          recommendation += ` and cascades to: [${indirectList.join(', ')}] (blast depth: ${blastDepth}). Verify contracts before commit.`;
+        } else {
+          recommendation += `. Verify contract before commit.`;
+        }
+      }
 
       return {
         target,
-        directlyAffected: affectedList,
+        directlyAffected: directList,
         indirectlyAffected: indirectList,
         safeComponents,
-        recommendation:
-          affectedList.length === 0
-            ? `Target '${target}' is not bound to any active components. Safe to introduce or edit.`
-            : `Editing '${target}' directly impacts: [${affectedList.join(', ')}]. Verify contract before commit.`,
+        blastRadiusDepth: blastDepth,
+        propagationPaths: paths,
+        recommendation,
       };
     },
 

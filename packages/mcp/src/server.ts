@@ -14,6 +14,7 @@ import { testAction } from '@agent-dom/core';
 import { buildDependencyGraph } from '@agent-dom/observer';
 import { applyPatch, type ComponentPatch } from '@agent-dom/patcher';
 import { validateWorkspacePath, checkSecretLeak } from './security.js';
+import { atomicApplySourceEdit } from './mutation.js';
 
 const traverse = (_traverse as any).default || _traverse;
 
@@ -274,74 +275,35 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
           return { isError: true, content: [{ type: 'text', text: err.message }] };
         }
 
-        if (!fs.existsSync(resolved)) {
-          return { isError: true, content: [{ type: 'text', text: `File not found: ${resolved}` }] };
-        }
-
-        // Check OCC Concurrency Token
-        const currentContent = fs.readFileSync(resolved, 'utf-8');
-        const currentVersion = 'sha256:' + crypto.createHash('sha256').update(currentContent).digest('hex');
-
-        if (expectedVersion && currentVersion !== expectedVersion) {
-          return {
-            isError: true,
-            content: [
-              {
-                type: 'text',
-                text: `CONFLICT_DETECTED: File was modified concurrently. Expected version '${expectedVersion}', but disk version is '${currentVersion}'. Re-inspect via agent_dom_get_component_source before retrying.`,
-              },
-            ],
-          };
-        }
-
-        // Parse and Validate Syntax
         try {
-          parser.parse(source, {
-            sourceType: 'module',
-            plugins: ['typescript', 'jsx'],
+          const result = atomicApplySourceEdit(resolved, source, {
+            expectedVersion,
+            validateTypeScript: true,
           });
-        } catch (parseErr: any) {
+
           return {
-            isError: true,
             content: [
               {
                 type: 'text',
-                text: `SYNTAX_ERROR: TypeScript/JSX validation failed at line ${parseErr.loc?.line}, column ${parseErr.loc?.column}: ${parseErr.message}`,
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    filePath: path.relative(projectRoot, result.filePath),
+                    version: result.version,
+                    message: result.message,
+                  },
+                  null,
+                  2
+                ),
               },
             ],
           };
-        }
-
-        // Secret Leak Check
-        const leakCheck = checkSecretLeak(source);
-        if (leakCheck.hasLeak) {
+        } catch (err: any) {
           return {
             isError: true,
-            content: [{ type: 'text', text: `Security Guard: Commit blocked. ${leakCheck.reason}` }],
+            content: [{ type: 'text', text: err.message }],
           };
         }
-
-        // Write safely to disk
-        fs.writeFileSync(resolved, source, 'utf-8');
-        const newVersion = 'sha256:' + crypto.createHash('sha256').update(source).digest('hex');
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(
-                {
-                  success: true,
-                  filePath: path.relative(projectRoot, resolved),
-                  version: newVersion,
-                  message: `Successfully applied source edit to ${path.basename(resolved)}.`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
       }
 
       case 'agent_dom_test_action': {
