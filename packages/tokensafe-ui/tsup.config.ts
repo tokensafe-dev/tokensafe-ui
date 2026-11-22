@@ -13,7 +13,7 @@ export default defineConfig({
   format: ['cjs', 'esm'],
   dts: true,
   clean: true,
-  sourcemap: true,
+  sourcemap: false,
   noExternal: [
     '@agent-dom/core',
     '@agent-dom/observer',
@@ -32,6 +32,15 @@ export default defineConfig({
     'vite',
     'typescript',
   ],
+  esbuildOptions(options) {
+    options.external = [
+      ...(options.external || []),
+      'typescript',
+      'zod',
+      'vite',
+      '@modelcontextprotocol/sdk',
+    ];
+  },
   banner: {
     js: `import { createRequire as __createRequire } from 'node:module';
 import { fileURLToPath as __fileURLToPath } from 'node:url';
