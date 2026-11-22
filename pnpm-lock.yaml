@@ -141,6 +141,8 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/create-tokensafe-ui: {}
+
   packages/mcp:
     dependencies:
       '@agent-dom/core':
@@ -345,6 +347,9 @@ importers:
       '@agent-dom/vite':
         specifier: workspace:*
         version: link:../packages/vite
+      tokensafe-ui:
+        specifier: workspace:*
+        version: link:../packages/tokensafe-ui
     devDependencies:
       typescript:
         specifier: ^5.7.2

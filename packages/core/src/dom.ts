@@ -25,17 +25,58 @@ export function h(
 }
 
 export function mount(instance: ComponentInstance<any, any, any>, container: HTMLElement): HTMLElement {
+  // If container already hosts an active component, unmount it cleanly first
+  const prevInstance = (container as any).__tokensafe_instance__;
+  if (prevInstance && typeof prevInstance.unmount === 'function') {
+    prevInstance.unmount();
+  }
+
   const root = renderVNode(instance.vnode, instance);
   container.innerHTML = '';
   container.appendChild(root);
+
+  instance.isMounted = true;
+  (container as any).__tokensafe_instance__ = instance;
+
   if (root instanceof HTMLElement) {
     instance.rootElement = root;
-    return root;
+  } else {
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(root);
+    instance.rootElement = wrapper;
   }
-  const wrapper = document.createElement('div');
-  wrapper.appendChild(root);
-  instance.rootElement = wrapper;
-  return wrapper;
+
+  // Execute onMount lifecycle hook if provided
+  if (typeof instance.config.onMount === 'function') {
+    try {
+      const mountCleanup = instance.config.onMount({
+        state: instance.state,
+        emit: instance.emit,
+        dispatch: instance.dispatch,
+      });
+      if (typeof mountCleanup === 'function') {
+        (instance as any)._cleanups?.add(mountCleanup);
+      }
+    } catch (err: any) {
+      instance.runtimeLog.push({
+        timestamp: Date.now(),
+        type: 'error',
+        error: `onMount hook error: ${err.message}`,
+      });
+    }
+  }
+
+  return instance.rootElement;
+}
+
+export function unmount(target: ComponentInstance<any, any, any> | HTMLElement): void {
+  if (!target) return;
+  if ('unmount' in target && typeof (target as any).unmount === 'function') {
+    (target as any).unmount();
+  } else if (target instanceof HTMLElement && (target as any).__tokensafe_instance__) {
+    (target as any).__tokensafe_instance__.unmount();
+    delete (target as any).__tokensafe_instance__;
+  }
 }
 
 export interface FormBindingProps {
@@ -376,6 +417,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
 
   // Create native HTML Element
   const el = document.createElement(node.type);
+  const cleanups = (instance as any)._cleanups;
 
   // Set props and reactive bindings
   for (const [key, value] of Object.entries(node.props)) {
@@ -384,15 +426,19 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     if (key.startsWith('on') && typeof value === 'function') {
       const eventName = key.slice(2).toLowerCase();
       el.addEventListener(eventName, value);
+      if ((value as any)?._actionName && !node.props['data-agent-action']) {
+        el.setAttribute('data-agent-action', (value as any)._actionName);
+      }
     } else if (key === 'class' || key === 'className') {
       if (typeof value === 'function') {
         const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
-        effect(() => {
+        const stop = effect(() => {
           el.className = String(value());
         }, {
           name: `dom:${agentId}.class`,
           kind: 'dom_binding',
         });
+        if (cleanups) cleanups.add(stop);
       } else {
         el.className = String(value);
       }
@@ -405,7 +451,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     } else if (typeof value === 'function') {
       // Dynamic reactive attribute binding
       const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
-      effect(() => {
+      const stop = effect(() => {
         const val = value();
         if (typeof val === 'boolean') {
           if (val) el.setAttribute(key, '');
@@ -417,6 +463,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
         name: `dom:${agentId}.${key}`,
         kind: 'dom_binding',
       });
+      if (cleanups) cleanups.add(stop);
     } else if (value !== false && value !== null && value !== undefined) {
       el.setAttribute(key, value === true ? '' : String(value));
     }
@@ -428,12 +475,13 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
       // Reactive text child binding
       const textNode = document.createTextNode('');
       const parentAgentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
-      effect(() => {
+      const stop = effect(() => {
         textNode.textContent = String(child());
       }, {
         name: `dom:${parentAgentId}.text`,
         kind: 'dom_binding',
       });
+      if (cleanups) cleanups.add(stop);
       el.appendChild(textNode);
     } else {
       el.appendChild(renderVNode(child, instance));

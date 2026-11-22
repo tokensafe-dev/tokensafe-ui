@@ -114,6 +114,14 @@ export interface ComponentConfig<
   state: TSchema;
   actions: TActions;
   effects?: TEffects;
+  filePath?: string;
+  initialState?: Partial<InferState<TSchema>>;
+  onMount?: (ctx: {
+    state: InferState<TSchema>;
+    emit: ActionEmitters<TActions, TEffects>;
+    dispatch: (actionName: keyof TActions, payload?: any) => InferState<TSchema>;
+  }) => void | (() => void);
+  onUnmount?: () => void;
   render: (ctx: {
     state: InferState<TSchema>;
     signals: { [K in keyof InferState<TSchema>]: Signal<InferState<TSchema>[K]> };
@@ -140,4 +148,6 @@ export interface ComponentInstance<
   rootElement?: HTMLElement;
   runtimeLog: RuntimeTelemetryEvent[];
   abortAll: () => void;
+  unmount: () => void;
+  isMounted: boolean;
 }

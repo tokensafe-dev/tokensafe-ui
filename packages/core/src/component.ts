@@ -28,7 +28,8 @@ export function defineComponent<
 
   return function createComponent(props: TProps = {} as TProps): ComponentInstance<TSchema, TActions, TEffects, TProps> {
     // 1. Initialize state with defaults or provided values
-    const rawDefault = zodSchema.parse({});
+    const initialOverrides = (props as any)?.initialState || config.initialState || {};
+    const rawDefault = zodSchema.parse(initialOverrides);
     const stateSignals: Record<string, Signal<any>> = {};
 
     for (const [key, val] of Object.entries(rawDefault)) {
@@ -245,7 +246,7 @@ export function defineComponent<
           actionHandler.toString().includes('{ state');
 
         if (isAsync) {
-          (emit as any)[actionName] = (payload?: any) =>
+          const fn = (payload?: any) =>
             runEffect(
               actionName,
               {
@@ -256,8 +257,12 @@ export function defineComponent<
               },
               payload
             );
+          (fn as any)._actionName = actionName;
+          (emit as any)[actionName] = fn;
         } else {
-          (emit as any)[actionName] = (payload?: any) => dispatch(actionName, payload);
+          const fn = (payload?: any) => dispatch(actionName, payload);
+          (fn as any)._actionName = actionName;
+          (emit as any)[actionName] = fn;
         }
       }
     }
@@ -265,7 +270,9 @@ export function defineComponent<
     // 4.2 Bind effects
     if (config.effects) {
       for (const [effectName, effectItem] of Object.entries(config.effects)) {
-        (emit as any)[effectName] = (payload?: any) => runEffect(effectName, effectItem, payload);
+        const fn = (payload?: any) => runEffect(effectName, effectItem, payload);
+        (fn as any)._actionName = effectName;
+        (emit as any)[effectName] = fn;
       }
     }
 
@@ -292,6 +299,42 @@ export function defineComponent<
       inFlightEffects.clear();
     };
 
+    const cleanups = new Set<() => void>();
+    let isMounted = false;
+
+    const unmount = () => {
+      if (!isMounted && !activeInstances.has(config.id)) return;
+      isMounted = false;
+
+      // 1. Abort any in-flight async effects
+      abortAll();
+
+      // 2. Run all registered cleanups
+      for (const cleanup of cleanups) {
+        try {
+          cleanup();
+        } catch {}
+      }
+      cleanups.clear();
+
+      // 3. Remove DOM element from document if present
+      if (instance.rootElement && instance.rootElement.parentNode) {
+        instance.rootElement.parentNode.removeChild(instance.rootElement);
+      }
+
+      // 4. Remove instance from activeInstances registry
+      if (activeInstances.get(config.id) === instance) {
+        activeInstances.delete(config.id);
+      }
+
+      // 5. Fire onUnmount hook
+      if (typeof config.onUnmount === 'function') {
+        try {
+          config.onUnmount();
+        } catch {}
+      }
+    };
+
     const instance: ComponentInstance<TSchema, TActions, TEffects, TProps> = {
       id: config.id,
       config,
@@ -303,7 +346,16 @@ export function defineComponent<
       vnode,
       runtimeLog,
       abortAll,
+      unmount,
+      get isMounted() {
+        return isMounted;
+      },
+      set isMounted(val: boolean) {
+        isMounted = val;
+      },
     };
+
+    (instance as any)._cleanups = cleanups;
 
     activeInstances.set(config.id, instance);
     return instance;

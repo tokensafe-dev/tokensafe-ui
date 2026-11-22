@@ -59,6 +59,9 @@ class EffectRunner implements Subscriber {
   private cleanup: CleanupFn | null = null;
   public dependencies = new Set<SignalImpl<any>>();
   public isDisposed = false;
+  private isRunning = false;
+  private runCount = 0;
+  private static MAX_RECURSION = 50;
 
   constructor(fn: EffectFn, options: EffectOptions = {}) {
     this.fn = fn;
@@ -73,6 +76,19 @@ class EffectRunner implements Subscriber {
 
   run(): void {
     if (this.isDisposed) return;
+
+    if (this.isRunning) {
+      this.runCount++;
+      if (this.runCount > EffectRunner.MAX_RECURSION) {
+        throw new Error(
+          `[TokenSafe Reactive Cycle] Maximum reactive update depth (${EffectRunner.MAX_RECURSION}) exceeded in effect '${this.name || this.id}'. Possible infinite loop detected.`
+        );
+      }
+    } else {
+      this.runCount = 0;
+    }
+
+    this.isRunning = true;
     this.cleanupPrev();
 
     // Dynamically unsubscribe from previous dependencies before re-evaluating
@@ -90,6 +106,7 @@ class EffectRunner implements Subscriber {
       }
     } finally {
       activeEffect = prevEffect;
+      this.isRunning = false;
     }
   }
 
@@ -228,10 +245,20 @@ export function batch(fn: () => void): void {
   } finally {
     isBatching = wasBatching;
     if (!isBatching) {
-      const effectsToRun = Array.from(pendingEffects);
-      pendingEffects.clear();
-      for (const eff of effectsToRun) {
-        eff.run();
+      let iterations = 0;
+      while (pendingEffects.size > 0) {
+        iterations++;
+        if (iterations > 50) {
+          pendingEffects.clear();
+          throw new Error(
+            '[TokenSafe Reactive Cycle] Maximum batch flush iterations (50) exceeded. Infinite reactive loop detected during batch.'
+          );
+        }
+        const effectsToRun = Array.from(pendingEffects);
+        pendingEffects.clear();
+        for (const eff of effectsToRun) {
+          eff.run();
+        }
       }
     }
   }

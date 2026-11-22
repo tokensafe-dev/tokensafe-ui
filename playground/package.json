@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "tokensafe-ui": "workspace:*",
     "@agent-dom/core": "workspace:*",
     "@agent-dom/observer": "workspace:*",
     "@agent-dom/patcher": "workspace:*",
