@@ -1,5 +1,5 @@
 {
-  "name": "agent-dom-monorepo",
+  "name": "tokensafe-ui-monorepo",
   "version": "0.1.0",
   "private": true,
   "description": "Deterministic, token-efficient frontend micro-framework for AI coding agents",

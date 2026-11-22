@@ -2,7 +2,8 @@
 
 **Date**: 2026-11-22  
 **Status**: Adopted Specification & Architecture Standard  
-**Repository**: [github.com/NekoSin4eG/agent-dom](https://github.com/NekoSin4eG/agent-dom)
+**Runtime Repository**: [github.com/tokensafe-dev/tokensafe-ui](https://github.com/tokensafe-dev/tokensafe-ui)  
+**Protocol Repository**: [github.com/tokensafe-dev/oumv](https://github.com/tokensafe-dev/oumv)
 
 ---
 

@@ -1,10 +1,12 @@
-# agent-dom
+# tokensafe-ui
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![npm version](https://img.shields.io/badge/npm-agent--dom-orange)](https://www.npmjs.com/package/agent-dom)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![npm version](https://img.shields.io/badge/npm-tokensafe--ui-orange)](https://www.npmjs.com/package/@tokensafe/ui)
+[![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.0-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
-> **The standardized reactive substrate and protocol for AI coding agents to Observe, Understand, Mutate, and Verify frontend interfaces.**
+> **The native reactive micro-framework and runtime for AI coding agents implementing the OUMV Protocol (Observe, Understand, Mutate, Verify).**
+
+Part of the **[TokenSafe](https://github.com/tokensafe-dev)** autonomous agent developer ecosystem.
 
 ---
 
@@ -19,7 +21,7 @@ Traditional frontend frameworks (React, Vue, Angular) were designed for human de
 - **Invisible Causality**: The agent cannot see *why* an element is in a given state or what will break if a state changes.
 - **Fragile Verification Loops**: Verifying a minor UI mutation requires launching heavy, slow browser automation suites.
 
-**`agent-dom`** establishes an isomorphic reactive runtime and the **OUMV Protocol** (Observe, Understand, Mutate, Verify) to close the autonomous feedback loop between AI agents and user interfaces.
+**`tokensafe-ui`** establishes an isomorphic reactive runtime and natively implements the **[OUMV Protocol](https://github.com/tokensafe-dev/oumv)** (Observe, Understand, Mutate, Verify) to close the autonomous feedback loop between AI agents and user interfaces.
 
 ---
 
@@ -27,7 +29,7 @@ Traditional frontend frameworks (React, Vue, Angular) were designed for human de
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        AGENT-DOM RUNTIME ENGINE                        │
+│                      TOKENSAFE-UI RUNTIME ENGINE                       │
 ├────────────────────────────────────────────────────────────────────────┤
 │  1. OBSERVE (Наблюдение)      │  2. UNDERSTAND (Понимание)            │
 │  • Multi-Level Snapshot L0–L4 │  • Dynamic Reactive Signals Graph      │
@@ -164,16 +166,17 @@ elements:
   - [x] Component contract specification (`defineComponent`, schema validation).
   - [x] Multi-Level Observer L0–L2 (`getSemanticSnapshot`, `getPulse`, `getComponentContract`).
   - [x] Vite plugin & DevServer JSON-RPC bridge.
-- [ ] **P1: Causality Engine & Local Verification**
-  - [ ] Actions vs Effects separation with concurrency policies (`latest-wins`, `take-leading`, `queue`, `parallel`).
-  - [ ] Dynamic Reactive Signals Graph (`signal -> computed -> effect -> DOM binding`).
-  - [ ] Causality Engine query tool (`why_state`).
-  - [ ] Local low-millisecond Action Testing API with structured state & A11y diffs.
-  - [ ] Model Context Protocol (MCP) server tools for OUMV.
-- [ ] **P2: Resilient Mutations & Optimistic Concurrency Control**
-  - [ ] Symbol-level mutation manager with OCC versioning (`version`, `expectedVersion`, atomic rollback).
-  - [ ] Automated post-edit type-checking and formatting guard.
-  - [ ] Observer L3 (Isolated Source) & L4 (Runtime Traces).
+- [x] **P1: Causality Engine & Local Verification**
+  - [x] Actions vs Effects separation with concurrency policies (`latest-wins`, `take-leading`, `queue`, `parallel`).
+  - [x] Dynamic Reactive Signals Graph (`signal -> computed -> effect -> DOM binding`).
+  - [x] Causality Engine query tool (`why_state`).
+  - [x] Local low-millisecond Action Testing API with structured state & A11y diffs.
+  - [x] Model Context Protocol (MCP) server tools for OUMV.
+- [x] **P2: Resilient Mutations & Optimistic Concurrency Control**
+  - [x] Symbol-level mutation manager with OCC versioning (`version`, `expectedVersion`, atomic rollback).
+  - [x] Automated post-edit type-checking and formatting guard.
+  - [x] Native OUMV Protocol Adapter (`@agent-dom/oumv`).
+  - [x] Observer L3 (Isolated Source) & L4 (Runtime Traces).
 - [ ] **P3: Ecosystem & Benchmarking**
   - [ ] AUI-Bench autonomous agent benchmark suite.
   - [ ] React / Vue adapters for the OUMV protocol.
@@ -183,4 +186,4 @@ elements:
 
 ## License
 
-[MIT](LICENSE) © 2026 NekoSin4eG & Contributors
+[MIT](LICENSE) © 2026 TokenSafe & Contributors
