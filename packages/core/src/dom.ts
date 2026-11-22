@@ -1,5 +1,6 @@
 import type { AgentVNode, AgentChild, ComponentInstance } from './types.js';
-import { effect } from './signals.js';
+import { effect, signal, Signal } from './signals.js';
+import { Show, For, ErrorBoundary } from './control.js';
 
 export function h(
   type: string | ((props: any) => AgentVNode),
@@ -10,6 +11,10 @@ export function h(
   const flatChildren: AgentChild[] = children
     .flat()
     .filter((c) => c !== null && c !== undefined);
+
+  if (flatChildren.length > 0 && !normalizedProps.children) {
+    normalizedProps.children = flatChildren.length === 1 ? flatChildren[0] : flatChildren;
+  }
 
   return {
     type,
@@ -51,6 +56,119 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
   }
 
   if (typeof node.type === 'function') {
+    // 1. Show Component
+    if (node.type === Show) {
+      const container = document.createDocumentFragment();
+      const startAnchor = document.createComment('agent-dom:show-start');
+      const endAnchor = document.createComment('agent-dom:show-end');
+      container.appendChild(startAnchor);
+      container.appendChild(endAnchor);
+
+      let currentNodes: Node[] = [];
+
+      effect(() => {
+        const whenVal =
+          typeof node.props.when === 'function' ? node.props.when() : node.props.when;
+
+        for (const n of currentNodes) {
+          if (n.parentNode) n.parentNode.removeChild(n);
+        }
+        currentNodes = [];
+
+        const branch = whenVal
+          ? typeof node.props.children === 'function'
+            ? node.props.children(whenVal)
+            : node.props.children
+          : node.props.fallback;
+
+        if (branch !== null && branch !== undefined) {
+          const rendered = renderVNode(branch, instance);
+          const parent = endAnchor.parentNode || container;
+          parent.insertBefore(rendered, endAnchor);
+          currentNodes.push(rendered);
+        }
+      });
+
+      return container;
+    }
+
+    // 2. For Component
+    if (node.type === For) {
+      const container = document.createDocumentFragment();
+      const startAnchor = document.createComment('agent-dom:for-start');
+      const endAnchor = document.createComment('agent-dom:for-end');
+      container.appendChild(startAnchor);
+      container.appendChild(endAnchor);
+
+      type KeyItem = {
+        key: any;
+        node: Node;
+        indexSignal: Signal<number>;
+      };
+      let currentMap = new Map<any, KeyItem>();
+
+      effect(() => {
+        const rawItems =
+          typeof node.props.each === 'function'
+            ? node.props.each()
+            : node.props.each || [];
+        const items = Array.isArray(rawItems) ? rawItems : [];
+        const newMap = new Map<any, KeyItem>();
+        const parent = endAnchor.parentNode || container;
+
+        items.forEach((item: any, idx: number) => {
+          let itemKey: any;
+          if (typeof node.props.key === 'function') {
+            itemKey = node.props.key(item, idx);
+          } else if (node.props.key && typeof item === 'object') {
+            itemKey = item[node.props.key];
+          } else {
+            itemKey = item?.id ?? item?.key ?? (typeof item === 'string' ? item : idx);
+          }
+
+          let existing = currentMap.get(itemKey);
+          if (existing) {
+            existing.indexSignal.value = idx;
+            newMap.set(itemKey, existing);
+            currentMap.delete(itemKey);
+            parent.insertBefore(existing.node, endAnchor);
+          } else {
+            const indexSignal = signal(idx);
+            const childVNode = node.props.children(item, () => indexSignal.value);
+            const rendered = renderVNode(childVNode, instance);
+            existing = { key: itemKey, node: rendered, indexSignal };
+            newMap.set(itemKey, existing);
+            parent.insertBefore(rendered, endAnchor);
+          }
+        });
+
+        // Clean up removed items
+        for (const [_, item] of currentMap) {
+          if (item.node.parentNode) {
+            item.node.parentNode.removeChild(item.node);
+          }
+        }
+
+        currentMap = newMap;
+      });
+
+      return container;
+    }
+
+    // 3. Error Boundary Component
+    if (node.type === ErrorBoundary) {
+      try {
+        return renderVNode(node.props.children, instance);
+      } catch (err: any) {
+        instance.runtimeLog.push({
+          timestamp: Date.now(),
+          type: 'error',
+          error: `ErrorBoundary: ${err.message}`,
+        });
+        return renderVNode(node.props.fallback(err), instance);
+      }
+    }
+
     const childVNode = node.type(node.props);
     return renderVNode(childVNode, instance);
   }
@@ -137,6 +255,34 @@ function vnodeToString(node: AgentChild): string {
     return node.map(vnodeToString).join('');
   }
   if (typeof node.type === 'function') {
+    if (node.type === Show) {
+      const whenVal =
+        typeof node.props.when === 'function' ? node.props.when() : node.props.when;
+      const branch = whenVal
+        ? typeof node.props.children === 'function'
+          ? node.props.children(whenVal)
+          : node.props.children
+        : node.props.fallback;
+      return branch ? vnodeToString(branch) : '';
+    }
+    if (node.type === For) {
+      const rawItems =
+        typeof node.props.each === 'function'
+          ? node.props.each()
+          : node.props.each || [];
+      const items = Array.isArray(rawItems) ? rawItems : [];
+      return items.map((item: any, idx: number) => {
+        const childNode = node.props.children(item, () => idx);
+        return vnodeToString(childNode);
+      }).join('');
+    }
+    if (node.type === ErrorBoundary) {
+      try {
+        return vnodeToString(node.props.children);
+      } catch (err: any) {
+        return vnodeToString(node.props.fallback(err));
+      }
+    }
     return vnodeToString(node.type(node.props));
   }
 

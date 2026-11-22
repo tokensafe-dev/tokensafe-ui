@@ -46,26 +46,93 @@ export function defineComponent<
       },
     });
 
-    // 2. Wrap deterministic actions
+    // 2. Wrap deterministic actions with AbortSignal and runtime telemetry
     const emit = {} as ActionEmitters<TActions>;
+    const abortControllers = new Map<string, AbortController>();
+    const runtimeLog: any[] = [];
+
     for (const [actionName, handler] of Object.entries(config.actions)) {
-      (emit as any)[actionName] = (payload?: any) => {
-        // Collect current state snapshot
-        const currentSnapshot: Record<string, any> = {};
-        for (const [k, sig] of Object.entries(stateSignals)) {
-          currentSnapshot[k] = sig.peek();
+      (emit as any)[actionName] = async (payload?: any) => {
+        const startTime = Date.now();
+
+        // 2.1 Cancel previous in-flight invocation of this action
+        const prevController = abortControllers.get(actionName);
+        if (prevController) {
+          prevController.abort();
         }
+        const controller = new AbortController();
+        abortControllers.set(actionName, controller);
 
-        // Apply pure mutation
-        const nextState = handler(currentSnapshot as any, payload);
+        runtimeLog.push({
+          timestamp: startTime,
+          type: 'action_start',
+          actionName,
+        });
 
-        // Validate mutated state against schema
-        const validated = zodSchema.parse(nextState);
+        try {
+          // Collect current state snapshot
+          const currentSnapshot: Record<string, any> = {};
+          for (const [k, sig] of Object.entries(stateSignals)) {
+            currentSnapshot[k] = sig.peek();
+          }
 
-        // Update signals
-        for (const [k, v] of Object.entries(validated)) {
-          if (k in stateSignals && !Object.is(stateSignals[k].peek(), v)) {
-            stateSignals[k].value = v;
+          // Call handler supporting both sync (s, p) and async ({ state, signal }, p)
+          let res: any;
+          if (handler.length > 0 && typeof handler === 'function') {
+            const firstArg =
+              handler.toString().includes('signal') || handler.toString().includes('{ state')
+                ? { state: stateProxy, signal: controller.signal }
+                : currentSnapshot;
+            res = (handler as any)(firstArg, payload);
+          } else {
+            res = (handler as any)(currentSnapshot, payload);
+          }
+
+          if (res instanceof Promise) {
+            res = await res;
+          }
+
+          // If handler returned an updated state object, apply and validate
+          if (res && typeof res === 'object') {
+            const validated = zodSchema.parse(res);
+            for (const [k, v] of Object.entries(validated)) {
+              if (k in stateSignals && !Object.is(stateSignals[k].peek(), v)) {
+                const oldVal = stateSignals[k].peek();
+                stateSignals[k].value = v;
+                runtimeLog.push({
+                  timestamp: Date.now(),
+                  type: 'signal_mutation',
+                  actionName,
+                  signalKey: k,
+                  oldValue: oldVal,
+                  newValue: v,
+                });
+              }
+            }
+          }
+
+          runtimeLog.push({
+            timestamp: Date.now(),
+            type: 'action_end',
+            actionName,
+            durationMs: Date.now() - startTime,
+          });
+        } catch (err: any) {
+          // If aborted, silently ignore
+          if (controller.signal.aborted) {
+            return;
+          }
+          runtimeLog.push({
+            timestamp: Date.now(),
+            type: 'error',
+            actionName,
+            error: err.message,
+            durationMs: Date.now() - startTime,
+          });
+          throw err;
+        } finally {
+          if (abortControllers.get(actionName) === controller) {
+            abortControllers.delete(actionName);
           }
         }
       };
@@ -92,6 +159,7 @@ export function defineComponent<
       emit,
       props,
       vnode,
+      runtimeLog,
     };
 
     activeInstances.set(config.id, instance);

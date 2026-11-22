@@ -7,7 +7,7 @@ export type AgentChild =
   | boolean
   | null
   | undefined
-  | (() => any)
+  | ((...args: any[]) => any)
   | AgentVNode;
 
 export type AgentNode = AgentChild | AgentChild[];
@@ -17,7 +17,7 @@ export interface AgentVNodeProps {
   class?: string | (() => string);
   className?: string | (() => string);
   style?: string | Record<string, string>;
-  children?: AgentNode;
+  children?: any;
   'data-agent-id'?: string;
   onClick?: (e: any) => void;
   onChange?: (e: any) => void;
@@ -26,10 +26,11 @@ export interface AgentVNodeProps {
 }
 
 export interface AgentVNode {
-  type: string | ((props: any) => AgentVNode);
+  type: string | ((props: any) => any);
   props: AgentVNodeProps;
   children: AgentChild[];
   agentId?: string;
+  isControlFlow?: boolean;
 }
 
 export type StateSchema = Record<string, z.ZodTypeAny>;
@@ -38,18 +39,33 @@ export type InferState<T extends StateSchema> = {
   [K in keyof T]: z.infer<T[K]>;
 };
 
-export type ActionHandler<TState, TPayload = any> = (
-  state: TState,
-  payload: TPayload
-) => TState;
+export interface ActionContext<TState> {
+  state: TState;
+  signal: AbortSignal;
+}
+
+export type ActionHandler<TState, TPayload = any> =
+  | ((state: TState, payload: TPayload) => TState)
+  | ((ctx: ActionContext<TState>, payload: TPayload) => Promise<void | TState> | void | TState);
 
 export type ActionMap<TState> = Record<string, ActionHandler<TState, any>>;
 
 export type ActionEmitters<TActions extends ActionMap<any>> = {
   [K in keyof TActions]: Parameters<TActions[K]>[1] extends undefined
-    ? () => void
-    : (payload: Parameters<TActions[K]>[1]) => void;
+    ? () => Promise<void>
+    : (payload: Parameters<TActions[K]>[1]) => Promise<void>;
 };
+
+export interface RuntimeTelemetryEvent {
+  timestamp: number;
+  type: 'action_start' | 'action_end' | 'signal_mutation' | 'error';
+  actionName?: string;
+  signalKey?: string;
+  oldValue?: any;
+  newValue?: any;
+  error?: string;
+  durationMs?: number;
+}
 
 export interface ComponentConfig<
   TSchema extends StateSchema,
@@ -80,4 +96,5 @@ export interface ComponentInstance<
   props: TProps;
   vnode: AgentVNode;
   rootElement?: HTMLElement;
+  runtimeLog: RuntimeTelemetryEvent[];
 }
