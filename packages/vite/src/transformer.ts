@@ -150,13 +150,18 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
     },
   });
 
-  // 4. Ensure import { h } from '@agent-dom/core' exists if needed
+  // 4. Ensure import { h } from 'tokensafe-ui' or '@agent-dom/core' exists if needed
   if (needsHImport) {
     let hasCoreImport = false;
     let hasHImport = false;
 
     for (const stmt of ast.program.body) {
-      if (t.isImportDeclaration(stmt) && stmt.source.value === '@agent-dom/core') {
+      if (
+        t.isImportDeclaration(stmt) &&
+        (stmt.source.value === 'tokensafe-ui' ||
+          stmt.source.value === '@tokensafe-dev/ui' ||
+          stmt.source.value === '@agent-dom/core')
+      ) {
         hasCoreImport = true;
         if (stmt.specifiers.some((s) => s.local.name === 'h')) {
           hasHImport = true;
@@ -171,7 +176,7 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
       ast.program.body.unshift(
         t.importDeclaration(
           [t.importSpecifier(t.identifier('h'), t.identifier('h'))],
-          t.stringLiteral('@agent-dom/core')
+          t.stringLiteral('tokensafe-ui')
         )
       );
     }

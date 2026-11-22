@@ -257,6 +257,9 @@ importers:
 
   packages/tokensafe-ui:
     dependencies:
+      '@babel/generator':
+        specifier: ^7.26.5
+        version: 7.29.15
       '@babel/parser':
         specifier: ^7.26.5
         version: 7.29.15
@@ -266,6 +269,9 @@ importers:
       '@babel/types':
         specifier: ^7.26.5
         version: 7.29.15
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.4.0
+        version: 1.32.2(zod@3.25.76)
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -285,6 +291,9 @@ importers:
       '@agent-dom/patcher':
         specifier: workspace:*
         version: link:../patcher
+      '@agent-dom/vite':
+        specifier: workspace:*
+        version: link:../vite
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(postcss@8.5.33)(typescript@5.9.3)

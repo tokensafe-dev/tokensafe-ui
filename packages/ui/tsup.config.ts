@@ -7,6 +7,8 @@ export default defineConfig({
     'src/oumv.ts',
     'src/patcher.ts',
     'src/testing.ts',
+    'src/vite.ts',
+    'src/mcp.ts',
   ],
   format: ['cjs', 'esm'],
   dts: true,

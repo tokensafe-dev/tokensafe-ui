@@ -1,8 +1,12 @@
 {
   "name": "tokensafe-ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic, token-efficient frontend reactive micro-framework for AI coding agents",
   "type": "module",
+  "bin": {
+    "tokensafe-ui": "./bin/cli.js",
+    "tokensafe-mcp": "./bin/mcp.js"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,6 +35,16 @@
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "require": "./dist/testing.cjs"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.cjs"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "require": "./dist/mcp.cjs"
     }
   },
   "scripts": {
@@ -59,9 +73,11 @@
     "micro-framework"
   ],
   "dependencies": {
+    "@babel/generator": "^7.26.5",
     "@babel/parser": "^7.26.5",
     "@babel/traverse": "^7.26.5",
     "@babel/types": "^7.26.5",
+    "@modelcontextprotocol/sdk": "^1.4.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -70,6 +86,7 @@
     "@agent-dom/observer": "workspace:*",
     "@agent-dom/oumv": "workspace:*",
     "@agent-dom/patcher": "workspace:*",
+    "@agent-dom/vite": "workspace:*",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2"
   }

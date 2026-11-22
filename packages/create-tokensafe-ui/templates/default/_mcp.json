@@ -2,7 +2,7 @@
   "mcpServers": {
     "tokensafe-ui": {
       "command": "npx",
-      "args": ["-y", "@agent-dom/mcp"]
+      "args": ["-y", "tokensafe-ui", "mcp"]
     }
   }
 }

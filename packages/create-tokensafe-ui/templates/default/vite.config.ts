@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
-import { agentDomPlugin } from '@agent-dom/vite';
+import { tokensafePlugin } from 'tokensafe-ui/vite';
 
 export default defineConfig({
-  plugins: [agentDomPlugin()],
+  plugins: [tokensafePlugin()],
   server: {
     port: 5173,
   },
