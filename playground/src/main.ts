@@ -1,7 +1,18 @@
-import { VERSION } from '@agent-dom/core';
+import { mount } from '@agent-dom/core';
+import { getSemanticSnapshot } from '@agent-dom/observer';
+import { TaskBoard } from './App.js';
 
-console.log('agent-dom playground loaded, core version:', VERSION);
-const app = document.getElementById('app');
-if (app) {
-  app.innerHTML = `<h1>agent-dom Playground</h1><p>Core version: ${VERSION}</p>`;
+const appContainer = document.getElementById('app');
+if (appContainer) {
+  const instance = TaskBoard();
+  mount(instance, appContainer);
+
+  const snapshot = getSemanticSnapshot(appContainer);
+  console.log('--- Initial AgentDOM Semantic Snapshot ---');
+  console.log(snapshot);
+
+  // Broadcast to Vite DevServer WebSocket if running in browser
+  if (import.meta.hot) {
+    import.meta.hot.send('agent-dom:snapshot', { snapshot });
+  }
 }
