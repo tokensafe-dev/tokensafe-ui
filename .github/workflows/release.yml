@@ -33,11 +33,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Run verification test suite
-        run: pnpm test
-
       - name: Build packages
         run: pnpm build
+
+      - name: Run verification test suite
+        run: pnpm test
 
       - name: Publish tokensafe-ui
         run: pnpm --filter tokensafe-ui publish --access public --no-git-checks
