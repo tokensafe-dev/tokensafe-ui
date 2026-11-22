@@ -30,14 +30,14 @@ Traditional frontend frameworks (React, Vue, Angular) were designed for human de
 │                        AGENT-DOM RUNTIME ENGINE                        │
 ├────────────────────────────────────────────────────────────────────────┤
 │  1. OBSERVE (Наблюдение)      │  2. UNDERSTAND (Понимание)            │
-│  • Multi-Level Snapshot L0–L4 │  • Component Dependency Graph          │
-│  • A11y & Interactive Surface │  • Cause-and-Effect Telemetry Log      │
+│  • Multi-Level Snapshot L0–L4 │  • Dynamic Reactive Signals Graph      │
+│  • A11y & Interactive Surface │  • Causality Engine (Why this state?)  │
 │  • Active State Values        │  • Invariant & Schema Contracts        │
 ├───────────────────────────────┼────────────────────────────────────────┤
 │  3. MUTATE (Изменение)        │  4. VERIFY (Верификация)               │
-│  • Symbol-Level Source Edits  │  • 5ms Component-Level Action Testing  │
-│  • Ephemeral Action Trigger   │  • Structured State Diffs              │
-│  • Safe Hot Reloading (HMR)   │  • Type Guard & Diagnostics Intercept  │
+│  • Symbol-Level Edits with OCC│  • Low-ms Sync Action Testing          │
+│  • Transactions & Rollbacks   │  • Structured State & A11y Diffs       │
+│  • Ephemeral Sandbox State    │  • Type Guard & Diagnostics Intercept  │
 └───────────────────────────────┴────────────────────────────────────────┘
 ```
 
@@ -49,17 +49,19 @@ Progressive context disclosure guarantees the agent never wastes tokens:
 - **L3 (Isolated Source)**: Symbol-level component source code with AST line numbers.
 - **L4 (Runtime Traces)**: Event stream, signal mutations, and active subscriptions.
 
-### 2. UNDERSTAND: Dependency Graph & Cause Telemetry
-- **Component Dependency Graph**: Instant impact analysis answering *"What components will be affected if this state changes?"*
-- **Runtime Causality Inspector**: Identifies root causes of UI states (e.g., *"Why is the Submit button disabled?"* $\rightarrow$ validation invariant failure in `email` field).
+### 2. UNDERSTAND: Dynamic Dependency Graph & Causality Telemetry
+- **Dynamic Reactive Signals Graph**: Tracks runtime dependencies (`signal -> computed -> effect -> DOM binding`) without relying solely on static AST imports.
+- **Runtime Causality Inspector (`why_state`)**: Identifies root causes of UI states (e.g., *"Why is the Submit button disabled?"* $\rightarrow$ validation invariant failure in `email` field).
 
-### 3. MUTATE: Controlled Symbol-Level & Runtime Mutation
+### 3. MUTATE: Symbol-Level Edits with Optimistic Concurrency Control (OCC)
 - **Symbol-Level Source Editing**: Agents modify clean, isolated TypeScript components with automated post-edit type checking (`tsc --noEmit`) and auto-formatting before triggering HMR.
+- **Optimistic Concurrency Control (OCC)**: Every component inspection returns a content version hash; mutations require `expectedVersion` to prevent overwriting concurrent edits.
 - **Ephemeral Sandbox**: Test state transitions and dispatch actions in memory without touching disk files.
 
-### 4. VERIFY: 5ms Instant Action Testing
-- **Action Testing API**: Directly execute actions against components and receive structured before/after state diffs in milliseconds—without launching headless browsers.
-- **Invariant Assertions**: Real-time schema validation via Zod contracts.
+### 4. VERIFY: Local Low-Millisecond Multi-Metric Verification
+- **Action Testing API**: Directly execute actions against components and receive structured state diffs and A11y surface diffs in single-digit milliseconds—without launching headless browsers.
+- **Multi-Metric Latency Telemetry**: Telemetry breaks down timing across action reducer execution, schema validation, signal propagation, and DOM binding updates.
+- **Contract Invariant Assertions**: Real-time schema validation via Zod contracts.
 
 ---
 
@@ -86,15 +88,33 @@ export const TaskItem = defineComponent({
     id: z.string(),
     title: z.string(),
     completed: z.boolean().default(false),
+    status: z.enum(['idle', 'saving', 'saved', 'error']).default('idle'),
   },
 
-  // 2. Deterministic Actions (No side-effect spaghetti)
+  // 2. Pure Synchronous Actions (Deterministic reducers)
   actions: {
     toggle: (s) => ({ ...s, completed: !s.completed }),
     rename: (s, newTitle: string) => ({ ...s, title: newTitle }),
+    setStatus: (s, status) => ({ ...s, status }),
   },
 
-  // 3. Pure Projection
+  // 3. Managed Effects (Decoupled async with concurrency policy)
+  effects: {
+    save: {
+      concurrency: 'latest-wins',
+      handler: async ({ dispatch, signal, state }) => {
+        dispatch('setStatus', 'saving');
+        try {
+          await api.saveTask(state.id, { completed: state.completed }, { signal });
+          if (!signal.aborted) dispatch('setStatus', 'saved');
+        } catch (err: any) {
+          if (!signal.aborted) dispatch('setStatus', 'error');
+        }
+      },
+    },
+  },
+
+  // 4. Pure Projection
   render: ({ state, emit }) => (
     <div class="task-card" data-agent-id="root">
       <input
@@ -106,6 +126,9 @@ export const TaskItem = defineComponent({
       <span data-agent-id="title" class={state.completed ? 'done' : ''}>
         {state.title}
       </span>
+      <button data-agent-id="btn-save" onClick={emit.save} disabled={state.status === 'saving'}>
+        {state.status === 'saving' ? 'Saving...' : 'Save'}
+      </button>
     </div>
   ),
 });
@@ -123,29 +146,38 @@ console.log(snapshot);
 **Output (<60 tokens for the LLM context):**
 ```yaml
 view: task-item#root
-state: { id: "t-1", title: "Ship agent-dom", completed: false }
+state: { id: "t-1", title: "Ship agent-dom", completed: false, status: "idle" }
 elements:
   - input#checkbox [role: checkbox, checked: false, action: toggle]
   - span#title: "Ship agent-dom"
+  - button#btn-save: "Save" [action: save]
 ```
 
 ---
 
 ## Roadmap
 
-- [ ] **Phase 1: Core Runtime**
-  - [ ] Micro-signals implementation (dependency-free, zero-closure traps).
-  - [ ] Virtual DOM / Direct Reactive DOM mounting.
-  - [ ] Component contract specification (`defineComponent`, schema validation).
-- [ ] **Phase 2: Semantic Observer**
-  - [ ] Accessibility tree & reactive state projection serializer.
-  - [ ] YAML & Lean S-Expression formats for LLM prompt injections.
-- [ ] **Phase 3: Surgical AST Patcher**
-  - [ ] AST mutation engine (Babel / TypeScript compiler API).
-  - [ ] Agent CLI & MCP server tools (`agent-dom-cli patch`).
-- [ ] **Phase 4: Generative Runtime Sandbox**
-  - [ ] Safe in-browser execution of agent-streamed UI specs.
-  - [ ] Interactive developer playground.
+- [x] **P0: Core Reactive Substrate & Observer Foundation**
+  - [x] Micro-signals implementation (dependency-free, zero-closure traps).
+  - [x] Virtual DOM / Direct Reactive DOM mounting.
+  - [x] Control-flow reactive primitives (`Show`, `For`, `Portal`, `ErrorBoundary`).
+  - [x] Component contract specification (`defineComponent`, schema validation).
+  - [x] Multi-Level Observer L0–L2 (`getSemanticSnapshot`, `getPulse`, `getComponentContract`).
+  - [x] Vite plugin & DevServer JSON-RPC bridge.
+- [ ] **P1: Causality Engine & Local Verification**
+  - [ ] Actions vs Effects separation with concurrency policies (`latest-wins`, `take-leading`, `queue`, `parallel`).
+  - [ ] Dynamic Reactive Signals Graph (`signal -> computed -> effect -> DOM binding`).
+  - [ ] Causality Engine query tool (`why_state`).
+  - [ ] Local low-millisecond Action Testing API with structured state & A11y diffs.
+  - [ ] Model Context Protocol (MCP) server tools for OUMV.
+- [ ] **P2: Resilient Mutations & Optimistic Concurrency Control**
+  - [ ] Symbol-level mutation manager with OCC versioning (`version`, `expectedVersion`, atomic rollback).
+  - [ ] Automated post-edit type-checking and formatting guard.
+  - [ ] Observer L3 (Isolated Source) & L4 (Runtime Traces).
+- [ ] **P3: Ecosystem & Benchmarking**
+  - [ ] AUI-Bench autonomous agent benchmark suite.
+  - [ ] React / Vue adapters for the OUMV protocol.
+  - [ ] Isomorphic SSR hydration runtime.
 
 ---
 
