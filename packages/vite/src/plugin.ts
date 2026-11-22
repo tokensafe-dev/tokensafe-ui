@@ -53,7 +53,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         }
 
         let body = '';
-        req.on('data', (chunk) => {
+        req.on('data', (chunk: any) => {
           body += chunk;
         });
 

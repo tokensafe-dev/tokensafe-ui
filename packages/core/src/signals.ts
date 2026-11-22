@@ -1,5 +1,5 @@
 /**
- * @agent-dom/core - Fine-Grained Reactive Signals
+ * @tokensafe-ui/core - Fine-Grained Reactive Signals
  * Zero-dependency, zero-closure-trap reactive primitives with dynamic dependency graph.
  */
 

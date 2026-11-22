@@ -3,7 +3,7 @@ import path from 'node:path';
 import * as parser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
-import { activeInstances } from '@agent-dom/core';
+import { activeInstances } from '@tokensafe-ui/core';
 import type { SemanticElement, SemanticSnapshot } from './observer.js';
 
 const traverse = (_traverse as any).default || _traverse;

@@ -9,7 +9,7 @@ describe('Optimistic Concurrency Control (OCC) & Source Mutation Guard', () => {
   let testFilePath: string;
   let server: any;
 
-  const initialSource = `import { defineComponent, z } from '@agent-dom/core';
+  const initialSource = `import { defineComponent, z } from '@tokensafe-ui/core';
 
 export const Todo = defineComponent({
   id: 'todo-item',

@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { defineComponent, z } from '@agent-dom/core';
+import { defineComponent, z } from '@tokensafe-ui/core';
 import { createAgentDomAdapter } from '../src/index.js';
 
 describe('@agent-dom/oumv - Native OUMV Protocol Adapter', () => {
   let tmpDir: string;
   let testFile: string;
 
-  const sampleSource = `import { defineComponent, z } from '@agent-dom/core';
+  const sampleSource = `import { defineComponent, z } from '@tokensafe-ui/core';
 
 export const TaskCard = defineComponent({
   id: 'task-card',

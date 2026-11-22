@@ -4,7 +4,7 @@ import { transformAgentDomJsx } from '../src/index.js';
 describe('@agent-dom/vite - JSX Transformer', () => {
   it('transforms JSX into h() calls and auto-injects data-agent-id', () => {
     const input = `
-import { defineComponent, z } from '@agent-dom/core';
+import { defineComponent, z } from '@tokensafe-ui/core';
 
 export const MyCard = defineComponent({
   id: 'my-card',

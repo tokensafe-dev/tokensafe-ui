@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defineComponent, z, h, mount } from '@agent-dom/core';
+import { defineComponent, z, h, mount } from '@tokensafe-ui/core';
 import { observe } from '../src/index.js';
 
 describe('Progressive Context Disclosure (Observer L0–L4)', () => {

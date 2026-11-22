@@ -1,4 +1,4 @@
-import { activeInstances } from '@agent-dom/core';
+import { activeInstances } from '@tokensafe-ui/core';
 
 export interface SemanticElement {
   id: string;

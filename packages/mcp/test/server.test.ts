@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { inspectComponentContract } from '../src/index.js';
 
-describe('@agent-dom/mcp - MCP Server Tools', () => {
+describe('@tokensafe-ui/mcp - MCP Server Tools', () => {
   const sampleComponentSource = `
-import { defineComponent, z } from '@agent-dom/core';
+import { defineComponent, z } from '@tokensafe-ui/core';
 
 export const Counter = defineComponent({
   id: 'counter-card',

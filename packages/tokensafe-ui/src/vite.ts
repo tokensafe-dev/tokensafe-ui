@@ -1,2 +1,2 @@
-export * from '@agent-dom/vite';
-export { agentDom as tokensafePlugin, agentDom as tokensafeUIPlugin } from '@agent-dom/vite';
+export * from '@tokensafe-ui/vite';
+export { tokensafeUi, tokensafeUi as agentDom, tokensafeUi as tokensafePlugin, tokensafeUi as tokensafeUIPlugin } from '@tokensafe-ui/vite';

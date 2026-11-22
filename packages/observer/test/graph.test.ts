@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defineComponent, z } from '@agent-dom/core';
+import { defineComponent, z } from '@tokensafe-ui/core';
 import { buildDependencyGraph } from '../src/index.js';
 
 describe('Component Dependency Graph & Impact Analysis', () => {

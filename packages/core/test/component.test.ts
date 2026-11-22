@@ -73,7 +73,7 @@ describe('defineComponent & DOM Runtime', () => {
 
     const ssrHtml = renderToString(instance);
     expect(ssrHtml).toContain('<div class="counter" data-agent-id="counter-card:root">');
-    expect(ssrHtml).toContain('<script id="__AGENT_DOM_STATE__" type="application/json">');
+    expect(ssrHtml).toContain('<script id="__TOKENSAFE_UI_STATE__" type="application/json">');
     expect(ssrHtml).toContain('"count":2');
   });
 });

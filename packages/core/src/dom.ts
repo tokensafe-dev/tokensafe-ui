@@ -498,7 +498,7 @@ export function renderToString(instance: ComponentInstance<any, any, any>): stri
     stateSnapshot[k] = sig.peek();
   }
 
-  const stateScript = `<script id="__AGENT_DOM_STATE__" type="application/json">${JSON.stringify({
+  const stateScript = `<script id="__TOKENSAFE_UI_STATE__" type="application/json">${JSON.stringify({
     [instance.id]: stateSnapshot,
   })}</script>`;
 

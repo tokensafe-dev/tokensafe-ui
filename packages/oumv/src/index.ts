@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
-import { activeInstances, testAction } from '@agent-dom/core';
+import { activeInstances, testAction } from '@tokensafe-ui/core';
 import {
   getSemanticSnapshot,
   observe,
   buildDependencyGraph,
-} from '@agent-dom/observer';
-import { validateWorkspacePath, checkSecretLeak, atomicApplySourceEdit } from '@agent-dom/mcp';
+} from '@tokensafe-ui/observer';
+import { validateWorkspacePath, checkSecretLeak, atomicApplySourceEdit } from '@tokensafe-ui/mcp';
 
 export interface OumvAdapterConfig {
   projectRoot?: string;

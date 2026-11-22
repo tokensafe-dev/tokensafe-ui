@@ -10,9 +10,9 @@ import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
-import { testAction } from '@agent-dom/core';
-import { buildDependencyGraph } from '@agent-dom/observer';
-import { applyPatch, type ComponentPatch } from '@agent-dom/patcher';
+import { testAction } from '@tokensafe-ui/core';
+import { buildDependencyGraph } from '@tokensafe-ui/observer';
+import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
 import { validateWorkspacePath, checkSecretLeak } from './security.js';
 import { atomicApplySourceEdit } from './mutation.js';
 
@@ -23,13 +23,29 @@ export interface McpServerConfig {
   projectRoot?: string;
 }
 
-export function createAgentDomMcpServer(config: McpServerConfig = {}) {
+async function callDevServerRpc(devServerUrl: string, method: string, params: any) {
+  for (const endpoint of ['/__tokensafe_ui/rpc', '/__agent_dom/rpc']) {
+    try {
+      const res = await fetch(`${devServerUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, params }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+  }
+  return null;
+}
+
+export function createTokensafeMcpServer(config: McpServerConfig = {}) {
   const devServerUrl = config.devServerUrl || 'http://localhost:5173';
   const projectRoot = config.projectRoot || process.cwd();
 
   const server = new Server(
     {
-      name: 'agent-dom-mcp',
+      name: 'tokensafe-ui-mcp',
       version: '0.2.0',
     },
     {
@@ -41,159 +57,159 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
 
   // Define OUMV (Observe, Understand, Mutate, Verify) tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: [
-        {
-          name: 'agent_dom_observe',
-          description:
-            'OBSERVE (Pillar 1): Progressive context disclosure query (L0 Pulse <25t, L1 Surface <150t, L2 Contract, L3 Source, L4 Traces).',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              level: {
-                type: 'string',
-                enum: ['L0', 'L1', 'L2', 'L3', 'L4'],
-                default: 'L1',
-                description: 'Observation level (L0: Pulse, L1: Surface, L2: Contract, L3: Source, L4: Traces)',
-              },
-              format: {
-                type: 'string',
-                enum: ['yaml', 'sexp', 'json'],
-                default: 'yaml',
-              },
-              componentId: {
-                type: 'string',
-                description: 'Optional target component ID for L2/L3/L4 drill-down',
-              },
+    const oumvTools = [
+      {
+        name: 'tokensafe_observe',
+        description:
+          'OBSERVE (Pillar 1): Progressive context disclosure query (L0 Pulse <25t, L1 Surface <150t, L2 Contract, L3 Source, L4 Traces).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            level: {
+              type: 'string',
+              enum: ['L0', 'L1', 'L2', 'L3', 'L4'],
+              default: 'L1',
+              description: 'Observation level (L0: Pulse, L1: Surface, L2: Contract, L3: Source, L4: Traces)',
+            },
+            format: {
+              type: 'string',
+              enum: ['yaml', 'sexp', 'json'],
+              default: 'yaml',
+            },
+            componentId: {
+              type: 'string',
+              description: 'Optional target component ID for L2/L3/L4 drill-down',
             },
           },
         },
-        {
-          name: 'agent_dom_understand',
-          description:
-            'UNDERSTAND (Pillar 2): Dynamic impact analysis and runtime causality telemetry. Answers "What breaks if I change this?" or "Why is UI in this state?".',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                enum: ['impact', 'dependencies', 'causality', 'why_state'],
-                description: 'Type of understanding query (impact, dependencies, or causality/why_state)',
-              },
-              target: {
-                type: 'string',
-                description: 'State key, element ID, or Component ID to analyze (e.g. "counter-card.count")',
-              },
+      },
+      {
+        name: 'tokensafe_understand',
+        description:
+          'UNDERSTAND (Pillar 2): Dynamic impact analysis and runtime causality telemetry. Answers "What breaks if I change this?" or "Why is UI in this state?".',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              enum: ['impact', 'dependencies', 'causality', 'why_state'],
+              description: 'Type of understanding query (impact, dependencies, or causality/why_state)',
             },
-            required: ['query'],
-          },
-        },
-        {
-          name: 'agent_dom_get_component_source',
-          description:
-            'MUTATE (Pillar 3): Symbol-level source code retrieval with line mapping, AST bounds, and OCC version token for safe, isolated edits.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              componentId: { type: 'string', description: 'Component ID, e.g. "task-board"' },
-              filePath: { type: 'string', description: 'Relative path to component file' },
+            target: {
+              type: 'string',
+              description: 'State key, element ID, or Component ID to analyze (e.g. "counter-card.count")',
             },
-            required: ['componentId', 'filePath'],
           },
+          required: ['query'],
         },
-        {
-          name: 'agent_dom_apply_source_edit',
-          description:
-            'MUTATE (Pillar 3): Applies symbol-level TypeScript source edits with Optimistic Concurrency Control (OCC), TypeScript/JSX syntax verification, and secret leak prevention.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              filePath: { type: 'string', description: 'Relative path to component file' },
-              source: { type: 'string', description: 'Complete updated source code of the component' },
-              expectedVersion: {
-                type: 'string',
-                description: 'Required OCC version token (sha256:...) from agent_dom_get_component_source to prevent lost updates',
-              },
+      },
+      {
+        name: 'tokensafe_get_component_source',
+        description:
+          'MUTATE (Pillar 3): Symbol-level source code retrieval with line mapping, AST bounds, and OCC version token for safe, isolated edits.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            componentId: { type: 'string', description: 'Component ID, e.g. "task-board"' },
+            filePath: { type: 'string', description: 'Relative path to component file' },
+          },
+          required: ['componentId', 'filePath'],
+        },
+      },
+      {
+        name: 'tokensafe_apply_source_edit',
+        description:
+          'MUTATE (Pillar 3): Applies symbol-level TypeScript source edits with Optimistic Concurrency Control (OCC), TypeScript/JSX syntax verification, and secret leak prevention.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Relative path to component file' },
+            source: { type: 'string', description: 'Complete updated source code of the component' },
+            expectedVersion: {
+              type: 'string',
+              description: 'Required OCC version token (sha256:...) from tokensafe_get_component_source to prevent lost updates',
             },
-            required: ['filePath', 'source', 'expectedVersion'],
           },
+          required: ['filePath', 'source', 'expectedVersion'],
         },
-        {
-          name: 'agent_dom_test_action',
-          description:
-            'VERIFY (Pillar 4): Low-millisecond Local Action Verification. Executes an action or effect in memory and returns a structured before/after state diff and surface diff without a browser.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              componentId: { type: 'string', description: 'Target component ID' },
-              action: { type: 'string', description: 'Action or effect name to trigger' },
-              payload: { description: 'Optional action payload' },
-            },
-            required: ['componentId', 'action'],
+      },
+      {
+        name: 'tokensafe_test_action',
+        description:
+          'VERIFY (Pillar 4): Low-millisecond Local Action Verification. Executes an action or effect in memory and returns a structured before/after state diff and surface diff without a browser.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            componentId: { type: 'string', description: 'Target component ID' },
+            action: { type: 'string', description: 'Action or effect name to trigger' },
+            payload: { description: 'Optional action payload' },
+            filePath: { type: 'string', description: 'Optional relative path to component file' },
           },
+          required: ['componentId', 'action'],
         },
-        {
-          name: 'agent_dom_apply_patch',
-          description:
-            'MUTATE Macro: Applies a surgical AST patch (add action, update state schema, insert JSX, or bind event) with instant HMR.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              filePath: { type: 'string', description: 'Path to component file to patch' },
-              patch: { type: 'object', description: 'Component patch specification' },
-            },
-            required: ['filePath', 'patch'],
+      },
+      {
+        name: 'tokensafe_apply_patch',
+        description:
+          'MUTATE Macro: Applies a surgical AST patch (add action, update state schema, insert JSX, or bind event) with instant HMR.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Path to component file to patch' },
+            patch: { type: 'object', description: 'Component patch specification' },
           },
+          required: ['filePath', 'patch'],
         },
-        {
-          name: 'agent_dom_get_errors',
-          description:
-            'Returns structured, machine-actionable compiler or runtime error payloads without minified stack traces.',
-          inputSchema: {
-            type: 'object',
-            properties: {},
-          },
+      },
+      {
+        name: 'tokensafe_get_errors',
+        description:
+          'Returns structured, machine-actionable compiler or runtime error payloads without minified stack traces.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
-      ],
-    };
+      },
+    ];
+
+    // Expose aliases with agent_dom_ and tokensafe_ui_ prefixes
+    const allTools = [...oumvTools];
+    for (const t of oumvTools) {
+      allTools.push({ ...t, name: t.name.replace('tokensafe_', 'tokensafe_ui_') });
+      allTools.push({ ...t, name: t.name.replace('tokensafe_', 'agent_dom_') });
+    }
+
+    return { tools: allTools };
   });
 
   // Handle Tool Calls
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params;
+    const normalized = name.replace(/^(agent_dom_|tokensafe_ui_|tokensafe_)/, 'tokensafe_');
 
-    switch (name) {
-      case 'agent_dom_observe': {
+    switch (normalized) {
+      case 'tokensafe_observe': {
         const { level = 'L1', format = 'yaml', componentId } = args as any;
 
         // Try DevServer RPC
-        try {
-          const res = await fetch(`${devServerUrl}/__agent_dom/rpc`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ method: 'observe', params: { level, format, componentId } }),
-          });
-          if (res.ok) {
-            const data: any = await res.json();
-            return {
-              content: [{ type: 'text', text: data.result?.payload || 'level: empty' }],
-            };
-          }
-        } catch {
-          // DevServer offline
+        const rpcResult = await callDevServerRpc(devServerUrl, 'observe', { level, format, componentId });
+        if (rpcResult && rpcResult.result) {
+          return {
+            content: [{ type: 'text', text: rpcResult.result.payload || rpcResult.result.snapshot || 'level: empty' }],
+          };
         }
 
         return {
           content: [
             {
               type: 'text',
-              text: `level: ${level}\nstatus: dev_server_offline\nnote: Vite DevServer is not running. Use agent_dom_get_component_source to inspect files directly on disk.`,
+              text: `level: ${level}\nstatus: dev_server_offline\nnote: Vite DevServer is not running. Use tokensafe_get_component_source to inspect files directly on disk.`,
             },
           ],
         };
       }
 
-      case 'agent_dom_understand': {
+      case 'tokensafe_understand': {
         const { query, target = '' } = args as any;
         const graph = buildDependencyGraph();
 
@@ -226,7 +242,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         };
       }
 
-      case 'agent_dom_get_component_source': {
+      case 'tokensafe_get_component_source': {
         const { componentId, filePath } = args as any;
 
         let resolved: string;
@@ -265,7 +281,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         };
       }
 
-      case 'agent_dom_apply_source_edit': {
+      case 'tokensafe_apply_source_edit': {
         const { filePath, source, expectedVersion } = args as any;
 
         let resolved: string;
@@ -282,13 +298,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
           });
 
           // Invalidate module in DevServer if running
-          try {
-            await fetch(`${devServerUrl}/__agent_dom/rpc`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ method: 'reload_module', params: { filePath: resolved } }),
-            });
-          } catch {}
+          await callDevServerRpc(devServerUrl, 'reload_module', { filePath: resolved });
 
           return {
             content: [
@@ -315,29 +325,20 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         }
       }
 
-      case 'agent_dom_test_action': {
+      case 'tokensafe_test_action': {
         const { componentId, action, payload, filePath } = args as any;
 
         // 1. Try DevServer RPC
-        try {
-          const res = await fetch(`${devServerUrl}/__agent_dom/rpc`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              method: 'test_action',
-              params: { componentId, action, payload, filePath },
-            }),
-          });
-          if (res.ok) {
-            const data: any = await res.json();
-            if (data.result) {
-              return {
-                content: [{ type: 'text', text: JSON.stringify(data.result, null, 2) }],
-              };
-            }
-          }
-        } catch {
-          // DevServer offline, fallback to in-memory activeInstances
+        const rpcResult = await callDevServerRpc(devServerUrl, 'test_action', {
+          componentId,
+          action,
+          payload,
+          filePath,
+        });
+        if (rpcResult && rpcResult.result) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify(rpcResult.result, null, 2) }],
+          };
         }
 
         try {
@@ -353,7 +354,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         }
       }
 
-      case 'agent_dom_apply_patch': {
+      case 'tokensafe_apply_patch': {
         const { filePath, patch } = args as any;
 
         let resolved: string;
@@ -396,7 +397,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         };
       }
 
-      case 'agent_dom_get_errors': {
+      case 'tokensafe_get_errors': {
         return {
           content: [{ type: 'text', text: JSON.stringify({ errors: [] }) }],
         };
@@ -493,12 +494,14 @@ export function inspectComponentContract(sourceCode: string, componentId: string
   };
 }
 
+export const createAgentDomMcpServer = createTokensafeMcpServer;
+
 // CLI entrypoint if executed directly
-if (typeof process !== 'undefined' && process.argv && process.argv[1]?.endsWith('agent-dom-mcp')) {
-  const server = createAgentDomMcpServer();
+if (typeof process !== 'undefined' && process.argv && (process.argv[1]?.endsWith('tokensafe-mcp') || process.argv[1]?.endsWith('agent-dom-mcp') || process.argv[1]?.endsWith('mcp.js'))) {
+  const server = createTokensafeMcpServer();
   const transport = new StdioServerTransport();
   server.connect(transport).catch((err) => {
-    console.error('Failed to start agent-dom MCP server:', err);
+    console.error('Failed to start tokensafe-ui MCP server:', err);
     process.exit(1);
   });
 }

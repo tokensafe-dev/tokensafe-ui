@@ -159,7 +159,7 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
       if (
         t.isImportDeclaration(stmt) &&
         (stmt.source.value === 'tokensafe-ui' ||
-          stmt.source.value === '@tokensafe-dev/ui' ||
+          stmt.source.value === '@tokensafe-ui/core' ||
           stmt.source.value === '@agent-dom/core')
       ) {
         hasCoreImport = true;

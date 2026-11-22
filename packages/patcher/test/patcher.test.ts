@@ -3,7 +3,7 @@ import { applyPatch } from '../src/index.js';
 
 describe('@agent-dom/patcher - Surgical AST Mutations', () => {
   const initialSource = `
-import { defineComponent, z } from '@agent-dom/core';
+import { defineComponent, z } from '@tokensafe-ui/core';
 
 export const Counter = defineComponent({
   id: 'counter-card',

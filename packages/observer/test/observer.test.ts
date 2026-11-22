@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { defineComponent, z, h, mount } from '@agent-dom/core';
+import { defineComponent, z, h, mount } from '@tokensafe-ui/core';
 import { getSemanticSnapshot } from '../src/index.js';
 
 describe('@agent-dom/observer - Semantic Agent Vision', () => {

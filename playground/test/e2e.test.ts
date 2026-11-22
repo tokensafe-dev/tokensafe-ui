@@ -13,7 +13,7 @@ describe('agent-dom End-to-End Agent Loop', () => {
 
     const ssrOutput = renderToString(instance);
     expect(ssrOutput).toContain('data-agent-id="task-board:root"');
-    expect(ssrOutput).toContain('<script id="__AGENT_DOM_STATE__"');
+    expect(ssrOutput).toContain('<script id="__TOKENSAFE_UI_STATE__"');
 
     // 2. Agent Perception (Vision Snapshot < 100 tokens)
     const snapshot = getSemanticSnapshot(container.firstElementChild as HTMLElement) as string;
