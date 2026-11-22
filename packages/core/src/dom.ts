@@ -87,6 +87,9 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
           parent.insertBefore(rendered, endAnchor);
           currentNodes.push(rendered);
         }
+      }, {
+        name: `control:show:${instance.id}`,
+        kind: 'dom_binding',
       });
 
       return container;
@@ -185,8 +188,12 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
       el.addEventListener(eventName, value);
     } else if (key === 'class' || key === 'className') {
       if (typeof value === 'function') {
+        const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
         effect(() => {
           el.className = String(value());
+        }, {
+          name: `dom:${agentId}.class`,
+          kind: 'dom_binding',
         });
       } else {
         el.className = String(value);
@@ -199,6 +206,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
       }
     } else if (typeof value === 'function') {
       // Dynamic reactive attribute binding
+      const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
       effect(() => {
         const val = value();
         if (typeof val === 'boolean') {
@@ -207,6 +215,9 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
         } else {
           el.setAttribute(key, String(val));
         }
+      }, {
+        name: `dom:${agentId}.${key}`,
+        kind: 'dom_binding',
       });
     } else if (value !== false && value !== null && value !== undefined) {
       el.setAttribute(key, value === true ? '' : String(value));
@@ -218,8 +229,12 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     if (typeof child === 'function') {
       // Reactive text child binding
       const textNode = document.createTextNode('');
+      const parentAgentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
       effect(() => {
         textNode.textContent = String(child());
+      }, {
+        name: `dom:${parentAgentId}.text`,
+        kind: 'dom_binding',
       });
       el.appendChild(textNode);
     } else {

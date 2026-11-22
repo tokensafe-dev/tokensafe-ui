@@ -3,33 +3,39 @@ import { signal, Signal } from './signals.js';
 import type {
   StateSchema,
   ActionMap,
+  EffectMap,
+  EffectItem,
+  EffectHandler,
+  ConcurrencyPolicy,
   ComponentConfig,
   ComponentInstance,
   InferState,
   ActionEmitters,
+  RuntimeTelemetryEvent,
 } from './types.js';
 
 // Global registry for live component instances (used by observer & patcher)
-export const activeInstances = new Map<string, ComponentInstance<any, any, any>>();
+export const activeInstances = new Map<string, ComponentInstance<any, any, any, any>>();
 
 export function defineComponent<
   TSchema extends StateSchema,
   TActions extends ActionMap<InferState<TSchema>>,
+  TEffects extends EffectMap<InferState<TSchema>> = {},
   TProps = Record<string, any>
->(config: ComponentConfig<TSchema, TActions, TProps>) {
+>(config: ComponentConfig<TSchema, TActions, TEffects, TProps>) {
   // Schema validator
   const zodSchema = z.object(config.state);
 
-  return function createComponent(props: TProps = {} as TProps): ComponentInstance<TSchema, TActions, TProps> {
+  return function createComponent(props: TProps = {} as TProps): ComponentInstance<TSchema, TActions, TEffects, TProps> {
     // 1. Initialize state with defaults or provided values
     const rawDefault = zodSchema.parse({});
     const stateSignals: Record<string, Signal<any>> = {};
 
     for (const [key, val] of Object.entries(rawDefault)) {
-      stateSignals[key] = signal(val);
+      stateSignals[key] = signal(val, { name: `${config.id}.${key}` });
     }
 
-    // Proxy to read reactive values seamlessly via state.<key>
+    // Proxy to read/write reactive values seamlessly via state.<key>
     const stateProxy = new Proxy({} as InferState<TSchema>, {
       get(_, prop: string) {
         if (prop in stateSignals) {
@@ -46,103 +52,229 @@ export function defineComponent<
       },
     });
 
-    // 2. Wrap deterministic actions with AbortSignal and runtime telemetry
-    const emit = {} as ActionEmitters<TActions>;
-    const abortControllers = new Map<string, AbortController>();
-    const runtimeLog: any[] = [];
+    const runtimeLog: RuntimeTelemetryEvent[] = [];
+    const activeAbortControllers = new Set<AbortController>();
 
-    for (const [actionName, handler] of Object.entries(config.actions)) {
-      (emit as any)[actionName] = async (payload?: any) => {
-        const startTime = Date.now();
+    // 2. Pure Synchronous Reducer Dispatcher
+    const dispatch = (actionName: keyof TActions | string, payload?: any): InferState<TSchema> => {
+      const handler = config.actions[actionName as string];
+      if (!handler) {
+        throw new Error(`Action '${String(actionName)}' not defined on component '${config.id}'.`);
+      }
 
-        // 2.1 Cancel previous in-flight invocation of this action
-        const prevController = abortControllers.get(actionName);
-        if (prevController) {
-          prevController.abort();
+      const startTime = Date.now();
+      runtimeLog.push({
+        timestamp: startTime,
+        type: 'action_start',
+        actionName: String(actionName),
+      });
+
+      // Snapshot current state
+      const currentSnapshot: Record<string, any> = {};
+      for (const [k, sig] of Object.entries(stateSignals)) {
+        currentSnapshot[k] = sig.peek();
+      }
+
+      try {
+        const nextState = handler(currentSnapshot as any, payload);
+
+        // Check if legacy async returned a promise
+        if (nextState instanceof Promise) {
+          throw new Error(
+            `Action '${String(actionName)}' returned a Promise. Asynchronous operations must be defined under 'effects', not 'actions'.`
+          );
         }
-        const controller = new AbortController();
-        abortControllers.set(actionName, controller);
 
-        runtimeLog.push({
-          timestamp: startTime,
-          type: 'action_start',
-          actionName,
-        });
-
-        try {
-          // Collect current state snapshot
-          const currentSnapshot: Record<string, any> = {};
-          for (const [k, sig] of Object.entries(stateSignals)) {
-            currentSnapshot[k] = sig.peek();
-          }
-
-          // Call handler supporting both sync (s, p) and async ({ state, signal }, p)
-          let res: any;
-          if (handler.length > 0 && typeof handler === 'function') {
-            const firstArg =
-              handler.toString().includes('signal') || handler.toString().includes('{ state')
-                ? { state: stateProxy, signal: controller.signal }
-                : currentSnapshot;
-            res = (handler as any)(firstArg, payload);
-          } else {
-            res = (handler as any)(currentSnapshot, payload);
-          }
-
-          if (res instanceof Promise) {
-            res = await res;
-          }
-
-          // If handler returned an updated state object, apply and validate
-          if (res && typeof res === 'object') {
-            const validated = zodSchema.parse(res);
-            for (const [k, v] of Object.entries(validated)) {
-              if (k in stateSignals && !Object.is(stateSignals[k].peek(), v)) {
-                const oldVal = stateSignals[k].peek();
-                stateSignals[k].value = v;
-                runtimeLog.push({
-                  timestamp: Date.now(),
-                  type: 'signal_mutation',
-                  actionName,
-                  signalKey: k,
-                  oldValue: oldVal,
-                  newValue: v,
-                });
-              }
+        if (nextState && typeof nextState === 'object') {
+          const validated = zodSchema.parse(nextState);
+          for (const [k, v] of Object.entries(validated)) {
+            if (k in stateSignals && !Object.is(stateSignals[k].peek(), v)) {
+              const oldVal = stateSignals[k].peek();
+              stateSignals[k].value = v;
+              runtimeLog.push({
+                timestamp: Date.now(),
+                type: 'signal_mutation',
+                actionName: String(actionName),
+                signalKey: k,
+                oldValue: oldVal,
+                newValue: v,
+              });
             }
           }
-
-          runtimeLog.push({
-            timestamp: Date.now(),
-            type: 'action_end',
-            actionName,
-            durationMs: Date.now() - startTime,
-          });
-        } catch (err: any) {
-          // If aborted, silently ignore
-          if (controller.signal.aborted) {
-            return;
-          }
-          runtimeLog.push({
-            timestamp: Date.now(),
-            type: 'error',
-            actionName,
-            error: err.message,
-            durationMs: Date.now() - startTime,
-          });
-          throw err;
-        } finally {
-          if (abortControllers.get(actionName) === controller) {
-            abortControllers.delete(actionName);
-          }
         }
-      };
+
+        runtimeLog.push({
+          timestamp: Date.now(),
+          type: 'action_end',
+          actionName: String(actionName),
+          durationMs: Date.now() - startTime,
+        });
+
+        return stateProxy;
+      } catch (err: any) {
+        runtimeLog.push({
+          timestamp: Date.now(),
+          type: 'error',
+          actionName: String(actionName),
+          error: err.message,
+          durationMs: Date.now() - startTime,
+        });
+        throw err;
+      }
+    };
+
+    // 3. Effect Runtime & Concurrency Manager
+    const effectControllers = new Map<string, AbortController>();
+    const inFlightEffects = new Map<string, boolean>();
+    const effectQueues = new Map<string, Promise<any>>();
+
+    const executeEffectSingle = async (
+      effectName: string,
+      handler: EffectHandler<InferState<TSchema>>,
+      payload: any,
+      isTakeLeading = false
+    ): Promise<void> => {
+      const controller = new AbortController();
+      effectControllers.set(effectName, controller);
+      activeAbortControllers.add(controller);
+      if (isTakeLeading) inFlightEffects.set(effectName, true);
+
+      const startTime = Date.now();
+      runtimeLog.push({
+        timestamp: startTime,
+        type: 'action_start',
+        actionName: effectName,
+      });
+
+      try {
+        const ctx = {
+          dispatch: (name: string, p?: any) => dispatch(name, p),
+          signal: controller.signal,
+          state: stateProxy,
+        };
+
+        const res = handler(ctx, payload);
+        if (res instanceof Promise) {
+          await res;
+        }
+
+        runtimeLog.push({
+          timestamp: Date.now(),
+          type: 'action_end',
+          actionName: effectName,
+          durationMs: Date.now() - startTime,
+        });
+      } catch (err: any) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        runtimeLog.push({
+          timestamp: Date.now(),
+          type: 'error',
+          actionName: effectName,
+          error: err.message,
+          durationMs: Date.now() - startTime,
+        });
+        throw err;
+      } finally {
+        activeAbortControllers.delete(controller);
+        if (effectControllers.get(effectName) === controller) {
+          effectControllers.delete(effectName);
+        }
+        if (isTakeLeading) inFlightEffects.delete(effectName);
+      }
+    };
+
+    const runEffect = async (
+      effectName: string,
+      effectDef: EffectItem<InferState<TSchema>>,
+      payload?: any
+    ): Promise<void> => {
+      let concurrency: ConcurrencyPolicy = 'latest-wins';
+      let handler: EffectHandler<InferState<TSchema>>;
+
+      if (typeof effectDef === 'function') {
+        handler = effectDef;
+      } else {
+        concurrency = effectDef.concurrency || 'latest-wins';
+        handler = effectDef.handler;
+      }
+
+      // 3.1 'take-leading' policy: drop invocations while one is in-flight
+      if (concurrency === 'take-leading') {
+        if (inFlightEffects.get(effectName)) {
+          return;
+        }
+      }
+
+      // 3.2 'queue' policy: sequential execution chain
+      if (concurrency === 'queue') {
+        const prevQueue = effectQueues.get(effectName) || Promise.resolve();
+        const nextPromise = prevQueue.then(async () => {
+          await executeEffectSingle(effectName, handler, payload);
+        }).catch(() => {
+          // Keep queue moving even if previous invocation threw
+        });
+        effectQueues.set(effectName, nextPromise);
+        return nextPromise;
+      }
+
+      // 3.3 'latest-wins' policy: abort previous in-flight invocation
+      if (concurrency === 'latest-wins') {
+        const prev = effectControllers.get(effectName);
+        if (prev) {
+          prev.abort();
+          activeAbortControllers.delete(prev);
+        }
+      }
+
+      // 3.4 Execute 'latest-wins', 'parallel', or 'take-leading'
+      await executeEffectSingle(effectName, handler, payload, concurrency === 'take-leading');
+    };
+
+    // 4. Construct emit object combining actions & effects
+    const emit = {} as ActionEmitters<TActions, TEffects>;
+
+    // 4.1 Bind actions
+    if (config.actions) {
+      for (const [actionName, actionHandler] of Object.entries(config.actions)) {
+        // Backward compatibility: detect if handler is async or receives `{ state, signal }`
+        const isAsync =
+          actionHandler.constructor.name === 'AsyncFunction' ||
+          actionHandler.toString().includes('signal') ||
+          actionHandler.toString().includes('{ state');
+
+        if (isAsync) {
+          (emit as any)[actionName] = (payload?: any) =>
+            runEffect(
+              actionName,
+              {
+                concurrency: 'latest-wins',
+                handler: async (ctx, p) => {
+                  return (actionHandler as any)(ctx, p);
+                },
+              },
+              payload
+            );
+        } else {
+          (emit as any)[actionName] = (payload?: any) => dispatch(actionName, payload);
+        }
+      }
     }
 
-    // 3. Render pure vnode
+    // 4.2 Bind effects
+    if (config.effects) {
+      for (const [effectName, effectItem] of Object.entries(config.effects)) {
+        (emit as any)[effectName] = (payload?: any) => runEffect(effectName, effectItem, payload);
+      }
+    }
+
+    // 5. Render pure vnode
     const vnode = config.render({
       state: stateProxy,
       signals: stateSignals as any,
       emit,
+      dispatch,
       props,
     });
 
@@ -151,15 +283,26 @@ export function defineComponent<
       vnode.props['data-agent-id'] = `${config.id}:root`;
     }
 
-    const instance: ComponentInstance<TSchema, TActions, TProps> = {
+    const abortAll = () => {
+      for (const controller of activeAbortControllers) {
+        controller.abort();
+      }
+      activeAbortControllers.clear();
+      effectControllers.clear();
+      inFlightEffects.clear();
+    };
+
+    const instance: ComponentInstance<TSchema, TActions, TEffects, TProps> = {
       id: config.id,
       config,
       signals: stateSignals as any,
       state: stateProxy,
       emit,
+      dispatch,
       props,
       vnode,
       runtimeLog,
+      abortAll,
     };
 
     activeInstances.set(config.id, instance);

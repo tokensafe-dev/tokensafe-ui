@@ -6,6 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
@@ -69,18 +70,18 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         {
           name: 'agent_dom_understand',
           description:
-            'UNDERSTAND (Pillar 2): Impact analysis and causality telemetry. Answers "What breaks if I change this?" or "Why is UI in this state?".',
+            'UNDERSTAND (Pillar 2): Dynamic impact analysis and runtime causality telemetry. Answers "What breaks if I change this?" or "Why is UI in this state?".',
           inputSchema: {
             type: 'object',
             properties: {
               query: {
                 type: 'string',
-                enum: ['impact', 'dependencies'],
-                description: 'Type of understanding query (impact or dependencies)',
+                enum: ['impact', 'dependencies', 'causality', 'why_state'],
+                description: 'Type of understanding query (impact, dependencies, or causality/why_state)',
               },
               target: {
                 type: 'string',
-                description: 'State key or Component ID to analyze',
+                description: 'State key, element ID, or Component ID to analyze (e.g. "counter-card.count")',
               },
             },
             required: ['query'],
@@ -89,7 +90,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         {
           name: 'agent_dom_get_component_source',
           description:
-            'MUTATE (Pillar 3): Symbol-level source code retrieval with line mapping and AST bounds for safe, isolated agent edits.',
+            'MUTATE (Pillar 3): Symbol-level source code retrieval with line mapping, AST bounds, and OCC version token for safe, isolated edits.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -100,14 +101,31 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
           },
         },
         {
+          name: 'agent_dom_apply_source_edit',
+          description:
+            'MUTATE (Pillar 3): Applies symbol-level TypeScript source edits with Optimistic Concurrency Control (OCC), TypeScript/JSX syntax verification, and secret leak prevention.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              filePath: { type: 'string', description: 'Relative path to component file' },
+              source: { type: 'string', description: 'Complete updated source code of the component' },
+              expectedVersion: {
+                type: 'string',
+                description: 'Required OCC version token (sha256:...) from agent_dom_get_component_source to prevent lost updates',
+              },
+            },
+            required: ['filePath', 'source', 'expectedVersion'],
+          },
+        },
+        {
           name: 'agent_dom_test_action',
           description:
-            'VERIFY (Pillar 4): Instant 5ms Action Testing. Executes an action in memory and returns a structured before/after state diff without a browser.',
+            'VERIFY (Pillar 4): Low-millisecond Local Action Verification. Executes an action or effect in memory and returns a structured before/after state diff and surface diff without a browser.',
           inputSchema: {
             type: 'object',
             properties: {
               componentId: { type: 'string', description: 'Target component ID' },
-              action: { type: 'string', description: 'Action name to trigger' },
+              action: { type: 'string', description: 'Action or effect name to trigger' },
               payload: { description: 'Optional action payload' },
             },
             required: ['componentId', 'action'],
@@ -185,6 +203,23 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
           };
         }
 
+        if (query === 'causality' || query === 'why_state') {
+          const causality = graph.traceCausality(target);
+          if (!causality) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `No active causality trace found for '${target}'. Active components: [${Object.keys(graph.components).join(', ')}]`,
+                },
+              ],
+            };
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify(causality, null, 2) }],
+          };
+        }
+
         return {
           content: [{ type: 'text', text: graph.toYaml() }],
         };
@@ -205,6 +240,7 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
         }
 
         const source = fs.readFileSync(resolved, 'utf-8');
+        const version = 'sha256:' + crypto.createHash('sha256').update(source).digest('hex');
         const contract = inspectComponentContract(source, componentId);
         const lines = source.split('\n').map((l, i) => `${String(i + 1).padStart(2, '0')} | ${l}`);
 
@@ -216,8 +252,89 @@ export function createAgentDomMcpServer(config: McpServerConfig = {}) {
                 {
                   componentId,
                   filePath: path.relative(projectRoot, resolved),
+                  version,
                   contract,
                   annotatedSource: lines.join('\n'),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      case 'agent_dom_apply_source_edit': {
+        const { filePath, source, expectedVersion } = args as any;
+
+        let resolved: string;
+        try {
+          resolved = validateWorkspacePath(filePath, projectRoot);
+        } catch (err: any) {
+          return { isError: true, content: [{ type: 'text', text: err.message }] };
+        }
+
+        if (!fs.existsSync(resolved)) {
+          return { isError: true, content: [{ type: 'text', text: `File not found: ${resolved}` }] };
+        }
+
+        // Check OCC Concurrency Token
+        const currentContent = fs.readFileSync(resolved, 'utf-8');
+        const currentVersion = 'sha256:' + crypto.createHash('sha256').update(currentContent).digest('hex');
+
+        if (expectedVersion && currentVersion !== expectedVersion) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `CONFLICT_DETECTED: File was modified concurrently. Expected version '${expectedVersion}', but disk version is '${currentVersion}'. Re-inspect via agent_dom_get_component_source before retrying.`,
+              },
+            ],
+          };
+        }
+
+        // Parse and Validate Syntax
+        try {
+          parser.parse(source, {
+            sourceType: 'module',
+            plugins: ['typescript', 'jsx'],
+          });
+        } catch (parseErr: any) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `SYNTAX_ERROR: TypeScript/JSX validation failed at line ${parseErr.loc?.line}, column ${parseErr.loc?.column}: ${parseErr.message}`,
+              },
+            ],
+          };
+        }
+
+        // Secret Leak Check
+        const leakCheck = checkSecretLeak(source);
+        if (leakCheck.hasLeak) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Security Guard: Commit blocked. ${leakCheck.reason}` }],
+          };
+        }
+
+        // Write safely to disk
+        fs.writeFileSync(resolved, source, 'utf-8');
+        const newVersion = 'sha256:' + crypto.createHash('sha256').update(source).digest('hex');
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  filePath: path.relative(projectRoot, resolved),
+                  version: newVersion,
+                  message: `Successfully applied source edit to ${path.basename(resolved)}.`,
                 },
                 null,
                 2

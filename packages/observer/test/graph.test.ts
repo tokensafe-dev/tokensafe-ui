@@ -54,4 +54,18 @@ describe('Component Dependency Graph & Impact Analysis', () => {
     expect(impact.safeComponents).toContain('task-list');
     expect(impact.recommendation).toContain("Editing 'avatarUrl' directly impacts: [user-profile]");
   });
+
+  it('traces runtime causality and explains state mutations', () => {
+    const userInstance = UserProfile();
+    userInstance.emit.updateAvatar('/new-avatar.png');
+
+    const graph = buildDependencyGraph();
+    const causality = graph.traceCausality('user-profile.avatarUrl');
+
+    expect(causality).not.toBeNull();
+    expect(causality?.componentId).toBe('user-profile');
+    expect(causality?.value).toBe('/new-avatar.png');
+    expect(causality?.lastMutation?.actionName).toBe('updateAvatar');
+    expect(causality?.explanation).toContain("Last mutated by action 'updateAvatar'");
+  });
 });

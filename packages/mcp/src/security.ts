@@ -1,16 +1,30 @@
+import fs from 'node:fs';
 import path from 'node:path';
 
 /**
- * Workspace Boundary Guard.
- * Ensures all file operations remain strictly confined within the project workspace.
+ * Workspace Boundary Guard with Canonical Symlink Resolution.
+ * Ensures all file operations remain strictly confined within the project workspace,
+ * blocking directory traversal and symlink escapes.
  */
 export function validateWorkspacePath(inputPath: string, projectRoot: string): string {
-  const resolvedRoot = path.resolve(projectRoot);
-  const resolvedTarget = path.isAbsolute(inputPath)
-    ? path.resolve(inputPath)
-    : path.resolve(projectRoot, inputPath);
+  let canonicalRoot = path.resolve(projectRoot);
+  try {
+    if (fs.existsSync(canonicalRoot)) {
+      canonicalRoot = fs.realpathSync(canonicalRoot);
+    }
+  } catch {}
 
-  if (!resolvedTarget.startsWith(resolvedRoot)) {
+  let resolvedTarget = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(canonicalRoot, inputPath);
+
+  try {
+    if (fs.existsSync(resolvedTarget)) {
+      resolvedTarget = fs.realpathSync(resolvedTarget);
+    }
+  } catch {}
+
+  if (!resolvedTarget.startsWith(canonicalRoot)) {
     throw new Error(
       `Security Violation: Path traversal blocked. Target '${inputPath}' escapes workspace root '${projectRoot}'.`
     );
