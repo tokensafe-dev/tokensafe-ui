@@ -2,7 +2,7 @@
 
 **Date**: 2026-11-22  
 **Status**: Approved  
-**Repository**: [github.com/NekoSin4eG/agent-dom](https://github.com/NekoSin4eG/agent-dom)
+**Repository**: [github.com/tokensafe-dev/tokensafe-ui](https://github.com/tokensafe-dev/tokensafe-ui)
 
 ---
 
