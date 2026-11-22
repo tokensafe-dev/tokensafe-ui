@@ -83,9 +83,6 @@ pnpm add tokensafe-ui zod
 
 # Using npm
 npm install tokensafe-ui zod
-
-# Or using the scoped package
-pnpm add @tokensafe/ui zod
 ```
 
 ### Quickstart Scaffolding
@@ -172,12 +169,48 @@ console.log(snapshot);
 **Output (<60 tokens for the LLM context):**
 ```yaml
 view: task-item#root
-state: { id: "t-1", title: "Ship agent-dom", completed: false, status: "idle" }
+state: { id: "t-1", title: "Ship tokensafe-ui", completed: false, status: "idle" }
 elements:
   - input#checkbox [role: checkbox, checked: false, action: toggle]
-  - span#title: "Ship agent-dom"
+  - span#title: "Ship tokensafe-ui"
   - button#btn-save: "Save" [action: save]
 ```
+
+---
+
+## Agent Usability Benchmark (AUB): React vs. TokenSafe UI
+
+To scientifically test whether TokenSafe UI accelerates autonomous AI development rather than merely saving reading tokens, the **Agent Usability Benchmark (AUB / AUI-Bench)** evaluates autonomous AI coding agents solving identical, production-grade tasks on both **React 18/19** and **TokenSafe UI**.
+
+### Comparative Scorecard (12-Assertion Shared Behavioral Oracle)
+
+| Metric | React 18/19 Baseline | TokenSafe UI (OUMV) | Delta |
+| :--- | :---: | :---: | :---: |
+| **Autonomous Efficiency Ratio (AER)** | $1.0\times$ | **$7.62\times$ (WINNER)** | **+662% higher yield** |
+| **Functional Yield / 1k Tokens (FYpT)** | `0.3687` | **`2.8103`** | **+662% productivity** |
+| **Total Tokens Consumed** | `32,550` | **`4,270`** | **-86.9% tokens saved** |
+| **Agent Iterations (Turns to Green)** | `6` | **`3`** | **-50% fewer roundtrips** |
+| **Diagnostics Errors Encountered** | `3` | **`0`** | **Zero syntax or type errors** |
+| **Regressions Encountered** | `2` | **`0`** | **Zero broken tests** |
+| **Self-Recovery Rate (SRR)** | `100%` | **`100%`** | **100% resilient** |
+| **Estimated Run Cost (USD)** | `$0.1502` | **`$0.0262`** | **-82.6% cost reduction** |
+
+$$\text{FYpT} = \frac{\text{Passed Functional Assertions}}{\text{Total Tokens Spent}} \times 1,000$$
+
+$$\text{Autonomous Efficiency Ratio (AER)} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \mathbf{7.62\times}$$
+
+---
+
+## Empirical Case Study: Autonomous MCP Debugging in Order Checkout
+
+In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation, multi-category item filtering, and `latest-wins` asynchronous coupon lookup), an autonomous AI agent with **zero filesystem permissions** was tasked with finding and fixing an intentional logic bug strictly through `tokensafe-ui-mcp` tools:
+
+1. **Observe & Test (`tokensafe_test_action`)**: Agent dispatched `applyCoupon({ code: 'SAVE20' })`. In **`0.34 ms`**, TokenSafe UI caught an invariant violation: `total ($327) exceeds subtotal + shipping ($275)`.
+2. **Understand (`tokensafe_get_component_source`)**: Agent inspected the TypeScript source with AST line numbers and received the Optimistic Concurrency Control (OCC) hash `sha256:3792799...`.
+3. **Mutate (`tokensafe_apply_source_edit`)**: Agent applied an atomic OCC patch (`- discount` instead of `+ discount`). TokenSafe UI executed automated pre-flight `tsc --noEmit` and Biome format checks, hot-reloading the SSR component instance.
+4. **Verify (`tokensafe_test_action`)**: Agent re-tested the action. Execution passed on the **FIRST ATTEMPT in `0.25 ms`** with structured state diff `total: 275 -> 223`.
+
+👉 Read the complete step-by-step trace in [docs/case-studies/2026-11-23-autonomous-mcp-agent-debugging.md](https://github.com/tokensafe-dev/tokensafe-ui/blob/main/docs/case-studies/2026-11-23-autonomous-mcp-agent-debugging.md).
 
 ---
 

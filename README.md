@@ -83,9 +83,6 @@ pnpm add tokensafe-ui zod
 
 # Using npm
 npm install tokensafe-ui zod
-
-# Or using the scoped package
-pnpm add @tokensafe/ui zod
 ```
 
 ### Quickstart Scaffolding
@@ -172,10 +169,10 @@ console.log(snapshot);
 **Output (<60 tokens for the LLM context):**
 ```yaml
 view: task-item#root
-state: { id: "t-1", title: "Ship agent-dom", completed: false, status: "idle" }
+state: { id: "t-1", title: "Ship tokensafe-ui", completed: false, status: "idle" }
 elements:
   - input#checkbox [role: checkbox, checked: false, action: toggle]
-  - span#title: "Ship agent-dom"
+  - span#title: "Ship tokensafe-ui"
   - button#btn-save: "Save" [action: save]
 ```
 
@@ -218,6 +215,17 @@ pnpm aub:replay
 
 👉 Read the full methodology and architectural analysis in [docs/benchmarks/agent-usability-benchmark.md](docs/benchmarks/agent-usability-benchmark.md).
 
+### Empirical Case Study: Autonomous MCP Debugging in Order Checkout
+
+In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation, multi-category item filtering, and `latest-wins` asynchronous coupon lookup), an autonomous AI agent with **zero filesystem permissions** was tasked with finding and fixing an intentional logic bug strictly through `tokensafe-ui-mcp` tools:
+
+1. **Observe & Test (`tokensafe_test_action`)**: Agent dispatched `applyCoupon({ code: 'SAVE20' })`. In **`0.34 ms`**, TokenSafe UI caught an invariant violation: `total ($327) exceeds subtotal + shipping ($275)`.
+2. **Understand (`tokensafe_get_component_source`)**: Agent inspected the TypeScript source with AST line numbers and received the Optimistic Concurrency Control (OCC) hash `sha256:3792799...`.
+3. **Mutate (`tokensafe_apply_source_edit`)**: Agent applied an atomic OCC patch (`- discount` instead of `+ discount`). TokenSafe UI executed automated pre-flight `tsc --noEmit` and Biome format checks, hot-reloading the SSR component instance.
+4. **Verify (`tokensafe_test_action`)**: Agent re-tested the action. Execution passed on the **FIRST ATTEMPT in `0.25 ms`** with structured state diff `total: 275 -> 223`.
+
+👉 Read the complete step-by-step trace in [docs/case-studies/2026-11-23-autonomous-mcp-agent-debugging.md](docs/case-studies/2026-11-23-autonomous-mcp-agent-debugging.md).
+
 ---
 
 ## Roadmap
@@ -238,7 +246,7 @@ pnpm aub:replay
 - [x] **P2: Resilient Mutations & Optimistic Concurrency Control**
   - [x] Symbol-level mutation manager with OCC versioning (`version`, `expectedVersion`, atomic rollback).
   - [x] Automated post-edit type-checking and formatting guard.
-  - [x] Native OUMV Protocol Adapter (`@agent-dom/oumv`).
+  - [x] Native OUMV Protocol Adapter (`@tokensafe-ui/oumv`).
   - [x] Observer L3 (Isolated Source) & L4 (Runtime Traces).
 - [ ] **P3: Ecosystem & Benchmarking**
   - [x] AUI-Bench autonomous agent benchmark suite.

@@ -17,11 +17,6 @@ export default defineConfig({
       '@tokensafe-ui/patcher': path.resolve(__dirname, 'packages/patcher/src/index.ts'),
       '@tokensafe-ui/oumv': path.resolve(__dirname, 'packages/oumv/src/index.ts'),
       '@tokensafe-ui/vite': path.resolve(__dirname, 'packages/vite/src/index.ts'),
-      '@agent-dom/core': path.resolve(__dirname, 'packages/core/src/index.ts'),
-      '@agent-dom/observer': path.resolve(__dirname, 'packages/observer/src/index.ts'),
-      '@agent-dom/mcp': path.resolve(__dirname, 'packages/mcp/src/index.ts'),
-      '@agent-dom/patcher': path.resolve(__dirname, 'packages/patcher/src/index.ts'),
-      '@agent-dom/oumv': path.resolve(__dirname, 'packages/oumv/src/index.ts'),
     },
   },
   test: {
