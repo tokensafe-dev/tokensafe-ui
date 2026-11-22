@@ -44,14 +44,14 @@ OUMV is an independent protocol layer that can interface with multiple frontend 
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        AGENT-DOM RUNTIME ENGINE                        │
-├────────────────────────────────────────────────────────────────────────┤
-│  1. OBSERVE (Наблюдение)      │  2. UNDERSTAND (Понимание)            │
+│                      TOKENSAFE-UI RUNTIME ENGINE                       │
+├───────────────────────────────┬────────────────────────────────────────┤
+│  1. OBSERVE                   │  2. UNDERSTAND                         │
 │  • Multi-Level Snapshot L0–L4 │  • Dynamic Reactive Signals Graph      │
 │  • A11y & Interactive Surface │  • Causality Engine (Why this state?)  │
 │  • Active State Values        │  • Invariant & Schema Contracts        │
 ├───────────────────────────────┼────────────────────────────────────────┤
-│  3. MUTATE (Изменение)        │  4. VERIFY (Верификация)               │
+│  3. MUTATE                    │  4. VERIFY                             │
 │  • Symbol-Level Edits with OCC│  • Low-ms Sync Action Testing          │
 │  • Transactions & Rollbacks   │  • Structured State & A11y Diffs       │
 │  • Ephemeral Sandbox State    │  • Type Guard & Diagnostics Intercept  │
