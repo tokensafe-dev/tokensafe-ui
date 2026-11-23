@@ -14,6 +14,9 @@ export interface OumvAdapterConfig {
   projectRoot?: string;
 }
 
+export * from './react.js';
+export * from './vue.js';
+
 /**
  * Creates a native OUMV Protocol Adapter for agent-dom.
  * Complies with the standardized @oumv/protocol contract.

@@ -31,6 +31,16 @@
       "import": "./dist/oumv.js",
       "require": "./dist/oumv.cjs"
     },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.cjs"
+    },
     "./patcher": {
       "types": "./dist/patcher.d.ts",
       "import": "./dist/patcher.js",

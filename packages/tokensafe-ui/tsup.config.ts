@@ -5,6 +5,8 @@ export default defineConfig({
     'src/index.ts',
     'src/observer.ts',
     'src/oumv.ts',
+    'src/react.ts',
+    'src/vue.ts',
     'src/patcher.ts',
     'src/testing.ts',
     'src/vite.ts',

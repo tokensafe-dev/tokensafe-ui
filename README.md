@@ -312,7 +312,7 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
   - [x] Observer L3 (Isolated Source) & L4 (Runtime Traces).
 - [ ] **P3: Ecosystem & Benchmarking**
   - [x] AUI-Bench autonomous agent benchmark suite.
-  - [ ] React / Vue adapters for the OUMV protocol.
+  - [x] React / Vue adapters for the OUMV protocol.
   - [x] Isomorphic SSR hydration runtime (`renderToString` + `hydrate`).
   - [x] Two-way form binding helpers (`bind`).
   - [x] Scaffolding CLI (`create-tokensafe-ui`).
