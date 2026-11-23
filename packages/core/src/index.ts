@@ -10,3 +10,5 @@ export * from './control.js';
 export * from './testing.js';
 export * from './contract-macro.js';
 export * from './bridge.js';
+export * from './query.js';
+export * from './router.js';

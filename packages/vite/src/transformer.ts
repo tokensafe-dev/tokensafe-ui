@@ -100,29 +100,62 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
     },
   });
 
-  // 3. Transform JSX to h() calls
+  function jsxNameToExpression(nameNode: any): t.Expression {
+    if (t.isJSXIdentifier(nameNode)) {
+      const name = nameNode.name;
+      return /^[A-Z]/.test(name) ? t.identifier(name) : t.stringLiteral(name);
+    }
+    if (t.isJSXMemberExpression(nameNode)) {
+      const obj = jsxNameToExpression(nameNode.object);
+      const prop = t.identifier(nameNode.property.name);
+      return t.memberExpression(obj, prop);
+    }
+    return t.stringLiteral('div');
+  }
+
+  // 3. Transform JSX to h() calls and handle Fragments
+  let needsFragmentImport = false;
+
   traverse(ast, {
+    JSXFragment: {
+      exit(path: any) {
+        needsHImport = true;
+        needsFragmentImport = true;
+        const childArgs: t.Expression[] = [];
+        for (const child of path.node.children) {
+          if (t.isJSXText(child)) {
+            const text = child.value.trim();
+            if (text) {
+              childArgs.push(t.stringLiteral(text));
+            }
+          } else if (t.isJSXExpressionContainer(child)) {
+            if (!t.isJSXEmptyExpression(child.expression)) {
+              childArgs.push(child.expression as t.Expression);
+            }
+          } else if (t.isExpression(child)) {
+            childArgs.push(child);
+          }
+        }
+        path.replaceWith(
+          t.callExpression(t.identifier('h'), [
+            t.identifier('Fragment'),
+            t.nullLiteral(),
+            ...childArgs,
+          ])
+        );
+      },
+    },
     JSXElement: {
       exit(path: any) {
         const opening = path.node.openingElement;
-        let tag: t.Expression;
+        const tag = jsxNameToExpression(opening.name);
 
-        if (t.isJSXIdentifier(opening.name)) {
-          const name = opening.name.name;
-          // Check if capitalized (component identifier) or lower (HTML tag)
-          if (/^[A-Z]/.test(name)) {
-            tag = t.identifier(name);
-          } else {
-            tag = t.stringLiteral(name);
-          }
-        } else {
-          tag = t.stringLiteral('div');
-        }
-
-        // Build props object
-        const propsProperties: t.ObjectProperty[] = [];
+        // Build props object (supporting attributes and spread attributes)
+        const propsProperties: (t.ObjectProperty | t.SpreadElement)[] = [];
         for (const attr of opening.attributes) {
-          if (t.isJSXAttribute(attr)) {
+          if (t.isJSXSpreadAttribute(attr)) {
+            propsProperties.push(t.spreadElement(attr.argument));
+          } else if (t.isJSXAttribute(attr)) {
             const keyName = t.isJSXIdentifier(attr.name)
               ? attr.name.name
               : 'prop';
@@ -171,10 +204,11 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
     },
   });
 
-  // 4. Ensure import { h } from 'tokensafe-ui' or '@agent-dom/core' exists if needed
+  // 4. Ensure import { h, Fragment } from 'tokensafe-ui' or '@agent-dom/core' exists if needed
   if (needsHImport) {
     let hasCoreImport = false;
     let hasHImport = false;
+    let hasFragImport = false;
 
     for (const stmt of ast.program.body) {
       if (
@@ -190,13 +224,25 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
           stmt.specifiers.push(t.importSpecifier(t.identifier('h'), t.identifier('h')));
           hasHImport = true;
         }
+        if (needsFragmentImport) {
+          if (stmt.specifiers.some((s) => s.local.name === 'Fragment')) {
+            hasFragImport = true;
+          } else {
+            stmt.specifiers.push(t.importSpecifier(t.identifier('Fragment'), t.identifier('Fragment')));
+            hasFragImport = true;
+          }
+        }
       }
     }
 
     if (!hasCoreImport && !hasHImport) {
+      const specs = [t.importSpecifier(t.identifier('h'), t.identifier('h'))];
+      if (needsFragmentImport && !hasFragImport) {
+        specs.push(t.importSpecifier(t.identifier('Fragment'), t.identifier('Fragment')));
+      }
       ast.program.body.unshift(
         t.importDeclaration(
-          [t.importSpecifier(t.identifier('h'), t.identifier('h'))],
+          specs,
           t.stringLiteral('tokensafe-ui')
         )
       );
