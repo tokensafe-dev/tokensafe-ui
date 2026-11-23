@@ -1,5 +1,5 @@
 import type { AgentVNode, AgentChild, ComponentInstance } from './types.js';
-import { effect, signal, Signal } from './signals.js';
+import { effect, signal, Signal, createScope, ReactiveScope, untrack } from './signals.js';
 import { Show, For, ErrorBoundary } from './control.js';
 
 export function h(
@@ -35,7 +35,9 @@ export function mount(
     prevInstance.unmount();
   }
 
-  const root = renderVNode(instance.vnode, instance);
+  const root = instance.scope
+    ? instance.scope.run(() => renderVNode(instance.vnode, instance))
+    : renderVNode(instance.vnode, instance);
   targetContainer.innerHTML = '';
   targetContainer.appendChild(root);
 
@@ -308,27 +310,47 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
       container.appendChild(endAnchor);
 
       let currentNodes: Node[] = [];
+      let currentScope: ReactiveScope | null = null;
 
       effect(() => {
         const whenVal =
           typeof node.props.when === 'function' ? node.props.when() : node.props.when;
+
+        if (currentScope) {
+          currentScope.dispose();
+          currentScope = null;
+        }
 
         for (const n of currentNodes) {
           if (n.parentNode) n.parentNode.removeChild(n);
         }
         currentNodes = [];
 
-        const branch = whenVal
-          ? typeof node.props.children === 'function'
-            ? node.props.children(whenVal)
-            : node.props.children
-          : node.props.fallback;
-
-        if (branch !== null && branch !== undefined) {
-          const rendered = renderVNode(branch, instance);
-          const parent = endAnchor.parentNode || container;
-          parent.insertBefore(rendered, endAnchor);
-          currentNodes.push(rendered);
+        if (whenVal) {
+          const { result: rendered, scope: branchScope } = createScope(() => {
+            const branch = untrack(() =>
+              typeof node.props.children === 'function'
+                ? node.props.children(whenVal)
+                : node.props.children
+            );
+            return untrack(() => (branch ? renderVNode(branch, instance) : null));
+          });
+          currentScope = branchScope;
+          if (rendered) {
+            const parent = endAnchor.parentNode || container;
+            parent.insertBefore(rendered, endAnchor);
+            currentNodes.push(rendered);
+          }
+        } else if (node.props.fallback) {
+          const { result: rendered, scope: branchScope } = createScope(() => {
+            return untrack(() => renderVNode(node.props.fallback, instance));
+          });
+          currentScope = branchScope;
+          if (rendered) {
+            const parent = endAnchor.parentNode || container;
+            parent.insertBefore(rendered, endAnchor);
+            currentNodes.push(rendered);
+          }
         }
       }, {
         name: `control:show:${instance.id}`,
@@ -350,6 +372,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
         key: any;
         node: Node;
         indexSignal: Signal<number>;
+        scope?: ReactiveScope;
       };
       let currentMap = new Map<any, KeyItem>();
 
@@ -380,9 +403,11 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
             parent.insertBefore(existing.node, endAnchor);
           } else {
             const indexSignal = signal(idx);
-            const childVNode = node.props.children(item, () => indexSignal.value);
-            const rendered = renderVNode(childVNode, instance);
-            existing = { key: itemKey, node: rendered, indexSignal };
+            const { result: rendered, scope: itemScope } = createScope(() => {
+              const childVNode = untrack(() => node.props.children(item, () => indexSignal.value));
+              return untrack(() => renderVNode(childVNode, instance));
+            });
+            existing = { key: itemKey, node: rendered, indexSignal, scope: itemScope };
             newMap.set(itemKey, existing);
             parent.insertBefore(rendered, endAnchor);
           }
@@ -390,12 +415,18 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
 
         // Clean up removed items
         for (const [_, item] of currentMap) {
+          if (item.scope) {
+            item.scope.dispose();
+          }
           if (item.node.parentNode) {
             item.node.parentNode.removeChild(item.node);
           }
         }
 
         currentMap = newMap;
+      }, {
+        name: `control:for:${instance.id}`,
+        kind: 'dom_binding',
       });
 
       return container;

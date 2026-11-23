@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { signal, Signal } from './signals.js';
+import { signal, Signal, batch, createScope, ReactiveScope } from './signals.js';
 import type {
   StateSchema,
   ActionMap,
@@ -99,20 +99,22 @@ export function defineComponent<
 
         if (nextState && typeof nextState === 'object') {
           const validated = zodSchema.parse(nextState);
-          for (const [k, v] of Object.entries(validated)) {
-            if (k in stateSignals && !Object.is(stateSignals[k].peek(), v)) {
-              const oldVal = stateSignals[k].peek();
-              stateSignals[k].value = v;
-              runtimeLog.push({
-                timestamp: Date.now(),
-                type: 'signal_mutation',
-                actionName: String(actionName),
-                signalKey: k,
-                oldValue: oldVal,
-                newValue: v,
-              });
+          batch(() => {
+            for (const [k, v] of Object.entries(validated)) {
+              if (k in stateSignals && !Object.is(stateSignals[k].peek(), v)) {
+                const oldVal = stateSignals[k].peek();
+                stateSignals[k].value = v;
+                runtimeLog.push({
+                  timestamp: Date.now(),
+                  type: 'signal_mutation',
+                  actionName: String(actionName),
+                  signalKey: k,
+                  oldValue: oldVal,
+                  newValue: v,
+                });
+              }
             }
-          }
+          });
         }
 
         runtimeLog.push({
@@ -287,13 +289,15 @@ export function defineComponent<
       }
     }
 
-    // 5. Render pure vnode
-    const vnode = config.render({
-      state: stateProxy,
-      signals: stateSignals as any,
-      emit,
-      dispatch,
-      props,
+    // 5. Render pure vnode inside a dedicated component reactive scope
+    const { result: vnode, scope: componentScope } = createScope(() => {
+      return config.render({
+        state: stateProxy,
+        signals: stateSignals as any,
+        emit,
+        dispatch,
+        props,
+      });
     });
 
     // Automatically ensure top-level root data-agent-id
@@ -320,7 +324,10 @@ export function defineComponent<
       // 1. Abort any in-flight async effects
       abortAll();
 
-      // 2. Run all registered cleanups
+      // 2. Dispose component reactive scope (cascading all owned computeds, effects, child scopes)
+      componentScope.dispose();
+
+      // 3. Run any remaining legacy cleanups
       for (const cleanup of cleanups) {
         try {
           cleanup();
@@ -328,17 +335,17 @@ export function defineComponent<
       }
       cleanups.clear();
 
-      // 3. Remove DOM element from document if present
+      // 4. Remove DOM element from document if present
       if (instance.rootElement && instance.rootElement.parentNode) {
         instance.rootElement.parentNode.removeChild(instance.rootElement);
       }
 
-      // 4. Remove instance from activeInstances registry
+      // 5. Remove instance from activeInstances registry
       if (activeInstances.get(config.id) === instance) {
         activeInstances.delete(config.id);
       }
 
-      // 5. Fire onUnmount hook
+      // 6. Fire onUnmount hook
       if (typeof config.onUnmount === 'function') {
         try {
           config.onUnmount();
@@ -358,6 +365,7 @@ export function defineComponent<
       runtimeLog,
       abortAll,
       unmount,
+      scope: componentScope,
       get isMounted() {
         return isMounted;
       },

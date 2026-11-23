@@ -6,8 +6,16 @@ export interface ReactiveEdge {
   kind: 'signal_subscription' | 'vnode_child' | 'action_dispatch';
 }
 
+export interface ComponentSubscriberInfo {
+  id: string;
+  name?: string;
+  kind: string;
+  level?: number;
+}
+
 export interface ComponentNode {
   id: string;
+  scopeId?: string;
   stateKeys: string[];
   actions: string[];
   effects: string[];
@@ -17,7 +25,8 @@ export interface ComponentNode {
     string,
     {
       value: any;
-      subscribers: { id: string; name?: string; kind: string }[];
+      level?: number;
+      subscribers: ComponentSubscriberInfo[];
     }
   >;
   reactiveEdges?: ReactiveEdge[];
@@ -70,7 +79,7 @@ export function buildDependencyGraph(): DependencyGraph {
 
     const signalMap: Record<
       string,
-      { value: any; subscribers: { id: string; name?: string; kind: string }[] }
+      { value: any; level?: number; subscribers: ComponentSubscriberInfo[] }
     > = {};
 
     for (const [key, sig] of Object.entries(instance.signals || {})) {
@@ -78,15 +87,18 @@ export function buildDependencyGraph(): DependencyGraph {
         id: s.id,
         name: s.name,
         kind: s.kind,
+        level: s.level,
       }));
       signalMap[key] = {
         value: (sig as any).peek?.(),
+        level: (sig as any).level ?? 0,
         subscribers: subs,
       };
     }
 
     components[id] = {
       id,
+      scopeId: instance.scope?.id,
       stateKeys,
       actions,
       effects,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Signal } from './signals.js';
+import type { Signal, ReactiveScope } from './signals.js';
 
 export type AgentChild =
   | string
@@ -150,4 +150,5 @@ export interface ComponentInstance<
   abortAll: () => void;
   unmount: () => void;
   isMounted: boolean;
+  scope?: ReactiveScope;
 }
