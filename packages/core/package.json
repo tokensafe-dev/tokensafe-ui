@@ -1,6 +1,6 @@
 {
   "name": "@tokensafe-ui/core",
-  "version": "0.1.0",
+  "version": "0.1.13",
   "description": "Zero-trap signals reactivity, component contract, and DOM runtime",
   "type": "module",
   "main": "./dist/index.cjs",

@@ -9,6 +9,8 @@ const SVG_TAGS = new Set([
   'tspan', 'use', 'image', 'symbol', 'linearGradient', 'radialGradient', 'stop'
 ]);
 
+const isValidChild = (c: any) => c !== null && c !== undefined && c !== false && c !== true;
+
 export function h(
   type: any,
   props: Record<string, any> | null,
@@ -17,13 +19,15 @@ export function h(
   const normalizedProps = props || {};
   let flatChildren: AgentChild[] = children
     .flat()
-    .filter((c) => c !== null && c !== undefined);
+    .filter(isValidChild);
 
   if (flatChildren.length === 0 && normalizedProps.children) {
     if (Array.isArray(normalizedProps.children)) {
-      flatChildren = normalizedProps.children.flat().filter((c: any) => c !== null && c !== undefined);
-    } else {
+      flatChildren = normalizedProps.children.flat().filter(isValidChild);
+    } else if (isValidChild(normalizedProps.children)) {
       flatChildren = [normalizedProps.children];
+    } else {
+      flatChildren = [];
     }
   } else if (flatChildren.length > 0 && !normalizedProps.children) {
     normalizedProps.children = flatChildren.length === 1 ? flatChildren[0] : flatChildren;
@@ -373,14 +377,20 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
     return renderVNode((node as any)(), instance);
   }
 
-  if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
+  if (typeof node === 'boolean' || node === null || node === undefined) {
+    return document.createTextNode('');
+  }
+
+  if (typeof node === 'string' || typeof node === 'number') {
     return document.createTextNode(String(node));
   }
 
   if (Array.isArray(node)) {
     const fragment = document.createDocumentFragment();
     for (const child of node) {
-      fragment.appendChild(renderVNode(child, instance));
+      if (child !== null && child !== undefined && child !== false && child !== true) {
+        fragment.appendChild(renderVNode(child, instance));
+      }
     }
     return fragment;
   }
@@ -840,7 +850,9 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
       });
       if (cleanups) cleanups.add(stop);
     } else {
-      el.appendChild(renderVNode(child, instance));
+      if (child !== null && child !== undefined && child !== false && child !== true) {
+        el.appendChild(renderVNode(child, instance));
+      }
     }
   }
 
@@ -866,7 +878,10 @@ export function renderToString(instanceOrVNode: ComponentInstance<any, any, any>
 }
 
 function vnodeToString(node: AgentChild): string {
-  if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
+  if (typeof node === 'boolean' || node === null || node === undefined) {
+    return '';
+  }
+  if (typeof node === 'string' || typeof node === 'number') {
     return escapeHtml(String(node));
   }
   if (typeof node === 'function') {
