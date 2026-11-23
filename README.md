@@ -52,7 +52,8 @@ Progressive context disclosure guarantees the agent never wastes tokens:
 - **L4 (Runtime Traces)**: Event stream, signal mutations, and active subscriptions.
 
 ### 2. UNDERSTAND: Dynamic Dependency Graph & Causality Telemetry
-- **Dynamic Reactive Signals Graph**: Tracks runtime dependencies (`signal -> computed -> effect -> DOM binding`) without relying solely on static AST imports.
+- **Dynamic Reactive Signals Graph**: Tracks runtime dependencies (`signal -> computed -> effect -> DOM binding`) with topological depth (`level`) and ownership scope isolation (`scopeId`) without relying solely on static AST imports.
+- **Glitch-Free Topological Ordering**: Multi-phase scheduler resolves diamond dependency convergence without transient intermediate states.
 - **Runtime Causality Inspector (`why_state`)**: Identifies root causes of UI states (e.g., *"Why is the Submit button disabled?"* $\rightarrow$ validation invariant failure in `email` field).
 
 ### 3. MUTATE: Symbol-Level Edits with Optimistic Concurrency Control (OCC)
@@ -176,6 +177,58 @@ elements:
   - button#btn-save: "Save" [action: save]
 ```
 
+### Standalone Reactive Primitives & Scopes (Substrate API)
+
+For advanced state architectures, data pipelines, and fine-grained logic outside components, `tokensafe-ui` exposes a zero-dependency, glitch-free reactive substrate:
+
+```typescript
+import {
+  signal,
+  computed,
+  effect,
+  batch,
+  untrack,
+  createRoot,
+  createScope,
+  onCleanup,
+} from 'tokensafe-ui';
+
+// 1. Signals & Glitch-Free Topological Computeds
+const source = signal(1);
+const a = computed(() => source.value * 2);
+const b = computed(() => source.value * 3);
+
+// Diamond convergence: evaluated strictly ONCE without transient intermediate states
+const sum = computed(() => a.value + b.value);
+
+// 2. Controlled Lifecycle: Explicit Disposal
+sum.dispose(); // Unhooks runner from 'a' and 'b' to guarantee zero memory leaks
+
+// 3. Reactive Scopes & Ownership Tree
+createRoot((dispose) => {
+  const { scope } = createScope(() => {
+    effect(() => {
+      // 4. untrack: read state without registering unwanted subscriptions
+      const current = a.value;
+      const debugCount = untrack(() => source.value);
+      console.log(`a=${current}, debug=${debugCount}`);
+    });
+
+    onCleanup(() => {
+      console.log('Scope teardown: cleanly unregistering child effects & computeds');
+    });
+  });
+
+  // Cascading cleanup of the entire child tree
+  dispose();
+});
+
+// 5. Atomic Multi-Field Batching (Also integrated into Component.dispatch())
+batch(() => {
+  source.value = 10;
+});
+```
+
 ---
 
 ## Agent Usability Benchmark (AUB): React vs. TokenSafe UI
@@ -237,8 +290,12 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
 
 - [x] **P0: Core Reactive Substrate & Observer Foundation**
   - [x] Micro-signals implementation (dependency-free, zero-closure traps).
+  - [x] Glitch-free topological scheduler (phased execution: computeds by level → effects → DOM).
+  - [x] Reactive ownership tree & scopes (`createRoot`, `createScope`, `onCleanup`).
+  - [x] Leak-free computeds with explicit `.dispose()` and `untrack()` API.
+  - [x] Atomic multi-field state transactions via `batch()` in component dispatchers.
   - [x] Virtual DOM / Direct Reactive DOM mounting.
-  - [x] Control-flow reactive primitives (`Show`, `For`, `Portal`, `ErrorBoundary`).
+  - [x] Control-flow reactive primitives (`Show`, `For`, `Portal`, `ErrorBoundary`) with branch/item scope disposal.
   - [x] Component contract specification (`defineComponent`, schema validation).
   - [x] Multi-Level Observer L0–L2 (`getSemanticSnapshot`, `getPulse`, `getComponentContract`).
   - [x] Vite plugin & DevServer JSON-RPC bridge.
