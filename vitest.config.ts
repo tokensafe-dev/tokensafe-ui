@@ -3,6 +3,7 @@ import path from 'node:path';
 
 export default defineConfig({
   resolve: {
+    conditions: ['browser', 'development'],
     alias: {
       'tokensafe-ui/observer': path.resolve(__dirname, 'packages/tokensafe-ui/src/observer.ts'),
       'tokensafe-ui/oumv': path.resolve(__dirname, 'packages/tokensafe-ui/src/oumv.ts'),

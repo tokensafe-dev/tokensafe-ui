@@ -14,6 +14,7 @@ describe('Autonomous MCP Agent: End-to-End OUMV Debug & Fix Loop', () => {
 
     const server = createAgentDomMcpServer({
       projectRoot: process.cwd(),
+      devServerUrl: 'http://127.0.0.1:59999',
     });
     await server.connect(serverTransport);
 

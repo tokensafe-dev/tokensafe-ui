@@ -1,5 +1,5 @@
 import type { AgentVNode, AgentChild, ComponentInstance } from './types.js';
-import { effect, signal, Signal, createScope, ReactiveScope, untrack } from './signals.js';
+import { effect, signal, Signal, createScope, ReactiveScope, untrack, createRoot } from './signals.js';
 import { Show, For, ErrorBoundary } from './control.js';
 import {
   createHookContext,
@@ -560,16 +560,27 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
 
           let existing = currentMap.get(itemKey);
           if (existing) {
-            existing.indexSignal.value = idx;
+            if (existing.indexSignal.peek() !== idx) {
+              existing.indexSignal.value = idx;
+            }
             newMap.set(itemKey, existing);
             currentMap.delete(itemKey);
             parent.insertBefore(existing.node, endAnchor);
           } else {
             const indexSignal = signal(idx);
-            const { result: rendered, scope: itemScope } = createScope(() => {
-              const childVNode = untrack(() => vnode.props.children(item, () => indexSignal.value));
-              return untrack(() => renderVNode(childVNode, instance));
+            let rendered!: Node;
+            let itemScope!: ReactiveScope;
+
+            createRoot((dispose) => {
+              const res = createScope(() => {
+                const childVNode = vnode.props.children(item, () => indexSignal.value);
+                return renderVNode(childVNode, instance);
+              });
+              rendered = res.result;
+              itemScope = res.scope;
+              itemScope.cleanups.add(dispose);
             });
+
             existing = { key: itemKey, node: rendered, indexSignal, scope: itemScope };
             newMap.set(itemKey, existing);
             parent.insertBefore(rendered, endAnchor);
@@ -660,7 +671,8 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
           } else {
             currentNodes = [rendered];
           }
-          container.insertBefore(rendered, endAnchor);
+          const targetParent = endAnchor.parentNode || container;
+          targetParent.insertBefore(rendered, endAnchor);
         } else {
           currentNodes = [];
         }

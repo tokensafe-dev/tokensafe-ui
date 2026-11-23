@@ -44,7 +44,7 @@ describe('Control-Flow Components (<Show>, <For>, <ErrorBoundary>)', () => {
     expect(container.querySelector('[data-agent-id="show:guest"]')?.textContent).toBe('Please log in');
   });
 
-  it('<For> renders reactive keyed lists with item addition and removal', () => {
+  it('<For> renders reactive keyed lists with item addition and removal', async () => {
     const ListComponent = defineComponent({
       id: 'for-test',
       state: {
