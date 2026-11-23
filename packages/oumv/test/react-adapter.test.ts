@@ -6,8 +6,11 @@ import {
   createReactAdapter,
   connectZustand,
   connectRedux,
+  connectReducer,
+  connectContext,
   isZustandStore,
   isReduxStore,
+  isReducerLike,
 } from '../src/react.js';
 
 describe('@tokensafe-ui/oumv - React Runtime Adapter', () => {
@@ -388,5 +391,98 @@ export function Counter() {
     expect(dispatchRes.stateDiff.user).toEqual({ before: 'alice', after: 'bob' });
 
     connectedRedux.unsubscribe?.();
+  });
+
+  it('supports React useReducer ([state, dispatch]) with direct action dispatch and verification', async () => {
+    // Mock useReducer state and dispatch
+    let state = { count: 10, status: 'idle' };
+    const dispatch = (action: { type: string; payload?: any }) => {
+      if (action.type === 'inc') {
+        state = { ...state, count: state.count + (action.payload || 1) };
+      } else if (action.type === 'status') {
+        state = { ...state, status: action.payload };
+      }
+    };
+
+    const reducerTuple = [state, dispatch] as [typeof state, typeof dispatch];
+    expect(isReducerLike(reducerTuple)).toBe(true);
+
+    const adapter = createReactAdapter({
+      projectRoot: tmpDir,
+      stores: {
+        // Dynamic getter to always fetch current state
+        counterReducer: () => [state, dispatch],
+      },
+    });
+
+    // 1. Observe L2 contract
+    const l2 = await adapter.observe({ level: 'L2', componentId: 'counterReducer', format: 'json' });
+    const contract = JSON.parse(l2.payload);
+    expect(contract.state.count).toBe(10);
+    expect(contract.actions).toContain('dispatch');
+
+    // 2. Verify dispatch execution
+    const verifyRes = await adapter.verify({
+      componentId: 'counterReducer',
+      action: 'dispatch',
+      payload: { type: 'inc', payload: 5 },
+    });
+
+    expect(verifyRes.stateBefore.count).toBe(10);
+    expect(verifyRes.stateAfter.count).toBe(15);
+    expect(verifyRes.stateDiff.count).toEqual({ before: 10, after: 15 });
+  });
+
+  it('supports React Context values with auto-discovered state & updaters', async () => {
+    // Mock a React Context value (e.g. { theme: 'dark', user: 'alice', setTheme, logout })
+    let theme = 'dark';
+    let user = 'alice';
+
+    const getContextValue = () => ({
+      theme,
+      user,
+      setTheme: (newTheme: string) => {
+        theme = newTheme;
+      },
+      logout: () => {
+        user = 'guest';
+      },
+    });
+
+    const adapter = createReactAdapter({
+      projectRoot: tmpDir,
+      contexts: {
+        sessionContext: getContextValue,
+      },
+    });
+
+    // 1. Observe L2 contract: functions become actions, non-functions become state
+    const l2 = await adapter.observe({ level: 'L2', componentId: 'sessionContext', format: 'json' });
+    const contract = JSON.parse(l2.payload);
+    expect(contract.state.theme).toBe('dark');
+    expect(contract.state.user).toBe('alice');
+    expect(contract.actions).toContain('setTheme');
+    expect(contract.actions).toContain('logout');
+
+    // 2. Verify: call setTheme action via adapter
+    const verifyRes = await adapter.verify({
+      componentId: 'sessionContext',
+      action: 'setTheme',
+      payload: 'light',
+    });
+
+    expect(verifyRes.stateBefore.theme).toBe('dark');
+    expect(verifyRes.stateAfter.theme).toBe('light');
+    expect(verifyRes.stateDiff.theme).toEqual({ before: 'dark', after: 'light' });
+
+    // 3. Verify: call logout action via adapter
+    const logoutRes = await adapter.verify({
+      componentId: 'sessionContext',
+      action: 'logout',
+    });
+
+    expect(logoutRes.stateBefore.user).toBe('alice');
+    expect(logoutRes.stateAfter.user).toBe('guest');
+    expect(logoutRes.stateDiff.user).toEqual({ before: 'alice', after: 'guest' });
   });
 });

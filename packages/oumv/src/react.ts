@@ -52,7 +52,54 @@ export interface ReduxConnectorOptions {
   actions?: Record<string, (payload?: any) => any | Promise<any>>;
 }
 
-export type StoreLike = ZustandStoreLike | ReduxStoreLike | ReactComponentDefinition;
+/**
+ * Duck-typed interface for React useReducer tuple [state, dispatch] or object { state, dispatch }.
+ */
+export type ReducerTuple<S = any, A = any> = [S, (action: A) => void];
+
+export interface ReducerObject<S = any, A = any> {
+  state: S;
+  dispatch: (action: A) => void;
+}
+
+export type ReducerLike<S = any, A = any> =
+  | ReducerTuple<S, A>
+  | ReducerObject<S, A>
+  | (() => ReducerTuple<S, A> | ReducerObject<S, A>);
+
+export interface ReducerConnectorOptions {
+  id?: string;
+  name?: string;
+  filePath?: string;
+  dependencies?: string[];
+  dependents?: string[];
+  actionCreators?: Record<string, (payload?: any) => any>;
+  actions?: Record<string, (payload?: any) => any | Promise<any>>;
+}
+
+/**
+ * Duck-typed interface for React Context values (state objects with updater functions, provider values, or state tuples).
+ */
+export interface ContextConnectorOptions {
+  id?: string;
+  name?: string;
+  filePath?: string;
+  dependencies?: string[];
+  dependents?: string[];
+  actions?: Record<string, (payload?: any) => any | Promise<any>>;
+}
+
+export type ContextValueLike =
+  | Record<string, any>
+  | [any, (valOrAction: any) => void]
+  | (() => any);
+
+export type StoreLike =
+  | ZustandStoreLike
+  | ReduxStoreLike
+  | ReducerLike
+  | ContextValueLike
+  | ReactComponentDefinition;
 
 export interface ConnectedStoreComponent extends ReactComponentDefinition {
   subscribeToTraces?: (onTrace: (event: ReactTraceEvent) => void) => () => void;
@@ -64,6 +111,7 @@ export interface ReactAdapterConfig {
   rootElement?: HTMLElement;
   components?: Record<string, ReactComponentDefinition>;
   stores?: Record<string, StoreLike>;
+  contexts?: Record<string, ContextValueLike | ConnectedStoreComponent>;
 }
 
 export interface ReactTraceEvent {
@@ -90,6 +138,151 @@ export function isReduxStore(store: any): store is ReduxStoreLike {
     typeof store.dispatch === 'function' &&
     typeof store.subscribe === 'function'
   );
+}
+
+export function isReducerLike(target: any): target is ReducerLike {
+  if (Array.isArray(target) && target.length >= 2 && typeof target[1] === 'function') {
+    return true;
+  }
+  if (target && typeof target === 'object' && 'state' in target && typeof target.dispatch === 'function') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Connects a React useReducer instance ([state, dispatch] or { state, dispatch }) to the OUMV protocol.
+ */
+export function connectReducer(
+  reducerTarget: ReducerLike,
+  options: ReducerConnectorOptions = {}
+): ConnectedStoreComponent {
+  const storeId = options.id || options.name || 'use-reducer';
+
+  const resolve = () => {
+    const raw = typeof reducerTarget === 'function' ? reducerTarget() : reducerTarget;
+    if (Array.isArray(raw)) {
+      return { state: raw[0], dispatch: raw[1] };
+    }
+    return { state: raw.state, dispatch: raw.dispatch };
+  };
+
+  const getState = (): Record<string, any> => {
+    const { state } = resolve();
+    if (state && typeof state === 'object' && !Array.isArray(state)) {
+      const clean: Record<string, any> = {};
+      for (const [k, v] of Object.entries(state)) {
+        if (typeof v !== 'function') clean[k] = v;
+      }
+      return clean;
+    }
+    return { value: state };
+  };
+
+  const actions: Record<string, (payload?: any) => any> = {
+    dispatch: (action: any) => {
+      const { dispatch } = resolve();
+      return dispatch(action);
+    },
+  };
+
+  if (options.actionCreators) {
+    for (const [name, creator] of Object.entries(options.actionCreators)) {
+      actions[name] = (payload?: any) => {
+        const { dispatch } = resolve();
+        return dispatch(creator(payload));
+      };
+    }
+  }
+
+  if (options.actions) {
+    Object.assign(actions, options.actions);
+  }
+
+  return {
+    id: storeId,
+    name: options.name || storeId,
+    filePath: options.filePath,
+    dependencies: options.dependencies,
+    dependents: options.dependents,
+    getState,
+    actions,
+  };
+}
+
+/**
+ * Connects a React Context value (object with state properties & updater functions, or Provider value) to the OUMV protocol.
+ * Auto-discovers state properties and actions.
+ */
+export function connectContext(
+  contextValue: ContextValueLike,
+  options: ContextConnectorOptions = {}
+): ConnectedStoreComponent {
+  const contextId = options.id || options.name || 'react-context';
+
+  const resolve = () => {
+    return typeof contextValue === 'function' ? contextValue() : contextValue;
+  };
+
+  const getState = (): Record<string, any> => {
+    const val = resolve();
+    if (Array.isArray(val) && val.length >= 2 && typeof val[1] === 'function') {
+      const s = val[0];
+      return s && typeof s === 'object' && !Array.isArray(s) ? s : { value: s };
+    }
+    if (val && typeof val === 'object') {
+      if ('state' in val && typeof val.dispatch === 'function') {
+        const s = val.state;
+        return s && typeof s === 'object' && !Array.isArray(s) ? s : { value: s };
+      }
+      const state: Record<string, any> = {};
+      for (const [k, v] of Object.entries(val)) {
+        if (typeof v !== 'function') {
+          state[k] = v;
+        }
+      }
+      return state;
+    }
+    return { value: val };
+  };
+
+  const actions: Record<string, (payload?: any) => any> = {};
+
+  const val = resolve();
+  if (Array.isArray(val) && val.length >= 2 && typeof val[1] === 'function') {
+    actions['set'] = (payload: any) => val[1](payload);
+    actions['dispatch'] = (payload: any) => val[1](payload);
+  } else if (val && typeof val === 'object') {
+    if (typeof val.dispatch === 'function') {
+      actions['dispatch'] = (action: any) => {
+        const latest = resolve();
+        return latest.dispatch(action);
+      };
+    }
+    for (const [k, v] of Object.entries(val)) {
+      if (typeof v === 'function' && k !== 'dispatch') {
+        actions[k] = async (payload?: any) => {
+          const latest = resolve();
+          const fn = typeof latest[k] === 'function' ? latest[k] : v;
+          return fn(payload);
+        };
+      }
+    }
+  }
+
+  if (options.actions) {
+    Object.assign(actions, options.actions);
+  }
+
+  return {
+    id: contextId,
+    name: options.name || contextId,
+    filePath: options.filePath,
+    dependencies: options.dependencies,
+    dependents: options.dependents,
+    getState,
+    actions,
+  };
 }
 
 /**
@@ -315,10 +508,12 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
       comp = connectZustand(store, { id });
     } else if (isReduxStore(store)) {
       comp = connectRedux(store, { id });
-    } else if (typeof store === 'object' && 'getState' in store) {
+    } else if (isReducerLike(store)) {
+      comp = connectReducer(store, { id });
+    } else if (typeof store === 'object' && ('getState' in store || 'actions' in store)) {
       comp = store as ConnectedStoreComponent;
     } else {
-      throw new Error(`Invalid store provided for '${id}': expected Zustand or Redux store interface`);
+      comp = connectContext(store as ContextValueLike, { id });
     }
 
     if (comp.subscribeToTraces) {
@@ -335,9 +530,19 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
     return comp;
   };
 
+  const registerContext = (id: string, contextVal: ContextValueLike) => {
+    return registerStore(id, contextVal);
+  };
+
   if (config.stores) {
     for (const [id, store] of Object.entries(config.stores)) {
       registerStore(id, store);
+    }
+  }
+
+  if (config.contexts) {
+    for (const [id, ctx] of Object.entries(config.contexts)) {
+      registerContext(id, ctx);
     }
   }
 
@@ -346,6 +551,11 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
     version: '18.x/19.x',
     registerComponent,
     registerStore,
+    registerContext,
+    connectZustand,
+    connectRedux,
+    connectReducer,
+    connectContext,
     recordTrace: (event: ReactTraceEvent) => {
       traceEvents.push(event);
     },

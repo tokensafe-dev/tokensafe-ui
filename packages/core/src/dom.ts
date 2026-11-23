@@ -300,6 +300,32 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     return document.createTextNode('');
   }
 
+  // Handle nested ComponentInstance if passed directly or returned by a component factory
+  if ('vnode' in (node as any) && (node as any).vnode) {
+    const childInstance = node as any;
+    const root = childInstance.scope
+      ? childInstance.scope.run(() => renderVNode(childInstance.vnode, childInstance))
+      : renderVNode(childInstance.vnode, childInstance);
+    if (root instanceof HTMLElement) {
+      childInstance.rootElement = root;
+    }
+    childInstance.isMounted = true;
+    if (typeof childInstance.config?.onMount === 'function') {
+      try {
+        const cleanup = childInstance.config.onMount({
+          state: childInstance.state,
+          emit: childInstance.emit,
+          dispatch: childInstance.dispatch,
+        });
+        if (typeof cleanup === 'function') {
+          (childInstance as any)._cleanups = (childInstance as any)._cleanups || new Set();
+          (childInstance as any)._cleanups.add(cleanup);
+        }
+      } catch (err) {}
+    }
+    return root;
+  }
+
   if (typeof node.type === 'function') {
     // 1. Show Component
     if (node.type === Show) {
@@ -607,6 +633,9 @@ function vnodeToString(node: AgentChild): string {
   }
   if (!node || typeof node !== 'object') {
     return '';
+  }
+  if ('vnode' in (node as any) && (node as any).vnode) {
+    return vnodeToString((node as any).vnode);
   }
   if (Array.isArray(node)) {
     return node.map(vnodeToString).join('');

@@ -61,7 +61,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       {
         name: 'tokensafe_observe',
         description:
-          'OBSERVE (Pillar 1): Progressive context disclosure query (L0 Pulse <25t, L1 Surface <150t, L2 Contract, L3 Source, L4 Traces).',
+          'OBSERVE (Pillar 1): Progressive context disclosure query across tokensafe-ui, React (18/19), and Vue applications (L0 Pulse <25t, L1 Surface <150t, L2 Contract, L3 Source, L4 Traces).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -86,7 +86,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       {
         name: 'tokensafe_understand',
         description:
-          'UNDERSTAND (Pillar 2): Dynamic impact analysis and runtime causality telemetry. Answers "What breaks if I change this?" or "Why is UI in this state?".',
+          'UNDERSTAND (Pillar 2): Dynamic impact analysis and runtime causality telemetry for tokensafe-ui, React, and Vue components. Answers "What breaks if I change this?" or "Why is UI in this state?".',
         inputSchema: {
           type: 'object',
           properties: {
@@ -119,7 +119,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       {
         name: 'tokensafe_apply_source_edit',
         description:
-          'MUTATE (Pillar 3): Applies symbol-level TypeScript source edits with Optimistic Concurrency Control (OCC), TypeScript/JSX syntax verification, and secret leak prevention.',
+          'MUTATE (Pillar 3): Applies symbol-level TypeScript/JSX/TSX source edits with Optimistic Concurrency Control (OCC), TypeScript/JSX syntax verification, and secret leak prevention across tokensafe-ui, React, and Vue.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -136,7 +136,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       {
         name: 'tokensafe_test_action',
         description:
-          'VERIFY (Pillar 4): Low-millisecond Local Action Verification. Executes an action or effect in memory and returns a structured before/after state diff and surface diff without a browser.',
+          'VERIFY (Pillar 4): Low-millisecond Local Action Verification for tokensafe-ui, React (actions, reducers, Zustand/Redux stores, Context updaters), and Vue. Executes an action in memory and returns a structured before/after state diff and surface diff without a browser.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -209,7 +209,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       {
         name: 'tokensafe_batch_mutate_verify',
         description:
-          'HIGH-VELOCITY (Turn Folding): Atomically applies patches or source edits in memory and executes action verifications in a single turn. Commits to disk only if verifications pass.',
+          'HIGH-VELOCITY (Turn Folding): Atomically applies patches or source edits in memory and executes action verifications in a single turn across tokensafe-ui, React, and Vue. Commits to disk only if verifications pass.',
         inputSchema: {
           type: 'object',
           properties: {

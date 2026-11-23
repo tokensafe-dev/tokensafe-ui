@@ -76,4 +76,33 @@ describe('defineComponent & DOM Runtime', () => {
     expect(ssrHtml).toContain('<script id="__TOKENSAFE_UI_STATE__" type="application/json">');
     expect(ssrHtml).toContain('"count":2');
   });
+
+  it('mounts nested defineComponent instances seamlessly in parent component', () => {
+    const Parent = defineComponent({
+      id: 'parent-view',
+      state: {
+        banner: z.string().default('Parent Header'),
+      },
+      render: ({ state }) =>
+        h(
+          'div',
+          { class: 'parent-container' },
+          h('h1', null, () => state.banner),
+          h(Counter, { initialState: { count: 10, title: 'Nested Child' } })
+        ),
+    });
+
+    const parentInst = Parent();
+    const container = document.createElement('div');
+    mount(parentInst, container);
+
+    const childTitle = container.querySelector('[data-agent-id="counter-card:title"]');
+    const childDisplay = container.querySelector('[data-agent-id="counter-card:display"]');
+    expect(childTitle?.textContent).toBe('Nested Child');
+    expect(childDisplay?.textContent).toBe('10');
+
+    const ssr = renderToString(parentInst);
+    expect(ssr).toContain('Parent Header');
+    expect(ssr).toContain('Nested Child');
+  });
 });

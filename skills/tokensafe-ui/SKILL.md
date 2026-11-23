@@ -1,11 +1,11 @@
 ---
 name: tokensafe-ui
-description: "Author reactive web interfaces and inspect, mutate, and verify UI components using the tokensafe-ui micro-framework and OUMV MCP server. Trigger on: 'tokensafe-ui', 'agent-dom', 'reactive components', 'UI mutation', 'test action', 'defineComponent', 'OUMV UI', 'build component'."
+description: "Author reactive web interfaces and inspect, mutate, and verify UI components using the tokensafe-ui micro-framework, React/Vue OUMV protocol adapters, and OUMV MCP server. Trigger on: 'tokensafe-ui', 'agent-dom', 'reactive components', 'UI mutation', 'test action', 'defineComponent', 'OUMV UI', 'React adapter', 'Vue adapter', 'Zustand adapter', 'Redux adapter', 'useReducer adapter', 'React Context adapter', 'build component'."
 ---
 
 # TokenSafe-UI Skill Guide
 
-`tokensafe-ui` is the native reactive micro-framework designed specifically for autonomous AI coding agents. It implements the **OUMV Protocol** (Observe, Understand, Mutate, Verify) to close the feedback loop between the agent and the running interface with zero context waste (<100 tokens per inspection) and single-digit millisecond local verification.
+`tokensafe-ui` is the native reactive micro-framework and universal **OUMV Protocol** runtime designed specifically for autonomous AI coding agents. It implements the OUMV Protocol (Observe, Understand, Mutate, Verify) to close the feedback loop between the agent and running interfaces with zero context waste (<100 tokens per inspection) and single-digit millisecond local verification across native components, React (18/19), and Vue.
 
 ---
 
@@ -14,7 +14,7 @@ description: "Author reactive web interfaces and inspect, mutate, and verify UI 
 Every component is defined via `defineComponent` with four distinct, decoupled sections:
 
 ```typescript
-import { defineComponent, z } from '@agent-dom/core';
+import { defineComponent, z } from 'tokensafe-ui';
 
 export const TaskItem = defineComponent({
   id: 'task-item',
@@ -91,9 +91,101 @@ Never use raw JS array mapping or ternaries that break fine-grained subscription
 
 ---
 
-## 2. The Golden OUMV Agent Workflow
+## 2. Glitch-Free Reactive Substrate (`signals`, `batch`, `untrack`, `scopes`)
 
-When asked to inspect, debug, modify, or extend a `tokensafe-ui` interface, ALWAYS execute the 4-step OUMV loop using MCP tools:
+`tokensafe-ui` includes an internal glitch-free topological reactive scheduler with automatic memory disposal:
+
+```typescript
+import { signal, computed, effect, batch, untrack, createScope, createRoot } from 'tokensafe-ui';
+
+// 1. Signals & Computeds with Diamond Dependency Glitch-Free Ordering
+const count = signal(0);
+const double = computed(() => count.value * 2);
+
+// 2. Atomic Multi-field Transactions with batch()
+batch(() => {
+  count.value = 10;
+  // Observers only run ONCE after all mutations in the batch complete
+});
+
+// 3. Untracked reads (telemetry, logging) without creating subscriptions
+effect(() => {
+  const current = count.value;
+  const meta = untrack(() => debugSignal.value);
+});
+
+// 4. Reactive Ownership Tree (Auto-cleanup to prevent memory leaks)
+const scope = createScope((dispose) => {
+  const tempComputed = computed(() => count.value * 10);
+  effect(() => console.log(tempComputed.value));
+});
+scope.dispose(); // Instantly frees all child subscriptions and computeds
+```
+
+---
+
+## 3. Integration with Existing React & Vue Projects (Zero Rewrite)
+
+**Do NOT rewrite existing React or Vue projects.** Use the official OUMV protocol adapters to give coding agents 100% inspection, mutation, and verification capabilities.
+
+### 3.1 React Integration (`tokensafe-ui/react`)
+
+Supports **Zustand**, **Redux**, **useReducer**, and **React Context** with automatic action discovery and live trace subscriptions:
+
+```typescript
+import {
+  createReactAdapter,
+  connectZustand,
+  connectRedux,
+  connectReducer,
+  connectContext,
+} from 'tokensafe-ui/react';
+import { useCartStore } from './stores/cartStore';
+import { store as reduxStore } from './stores/authStore';
+
+if (process.env.NODE_ENV === 'development') {
+  (window as any).__OUMV_ADAPTER__ = createReactAdapter({
+    rootElement: document.getElementById('root')!,
+
+    // 1. External stores (auto-discovery of state & actions + L4 trace updates)
+    stores: {
+      cart: useCartStore,          // Zustand: auto-discovers functions as actions
+      auth: reduxStore,            // Redux: dispatch & action creators mapped
+      counterReducer: [state, dispatch], // useReducer tuple
+    },
+
+    // 2. React Context values (state properties & updater functions)
+    contexts: {
+      session: sessionContextValue, // auto-extracts state and updaters
+    },
+  });
+}
+```
+
+### 3.2 Vue Integration (`tokensafe-ui/vue`)
+
+```typescript
+import { createVueAdapter } from 'tokensafe-ui/vue';
+
+if (process.env.NODE_ENV === 'development') {
+  (window as any).__OUMV_ADAPTER__ = createVueAdapter({
+    rootElement: document.getElementById('app')!,
+    components: {
+      todoApp: {
+        id: 'todo-app',
+        name: 'TodoApp',
+        filePath: 'src/components/TodoApp.vue',
+      },
+    },
+  });
+}
+```
+
+---
+
+## 4. The Golden OUMV Agent Workflow
+
+When asked to inspect, debug, modify, or extend a `tokensafe-ui`, React, or Vue interface, ALWAYS execute the 4-step OUMV loop using MCP tools:
 
 ```text
  1. OBSERVE       ──► Query agent_dom_observe(level: 'L1')
@@ -146,22 +238,35 @@ When asked to inspect, debug, modify, or extend a `tokensafe-ui` interface, ALWA
   ```
 - Receive structured state diffs (`diff`), accessibility surface diffs (`surfaceDiff`), and 5-metric timing breakdowns in <2ms.
 
+### 4.1 High-Velocity Turn Folding (`tokensafe_batch_mutate_verify`)
+To achieve ~18x–20x AER (Agent Efficiency Ratio), execute mutation and verification in a single turn:
+```json
+{
+  "filePath": "src/components/Cart.tsx",
+  "componentId": "cart",
+  "source": "<updated code>",
+  "expectedVersion": "sha256:...",
+  "verifyActions": ["addItem", "clear"]
+}
+```
+Commits to disk only if verifications pass!
+
 ---
 
-## 3. Strict Rules & Anti-Patterns
+## 5. Strict Rules & Anti-Patterns
 
-1. **NO React Hooks (`useState`, `useEffect`, `useCallback`)**:
-   `tokensafe-ui` uses fine-grained signals. State is declared in the `state` schema, and read via `state.<key>`.
-2. **NO Side-Effects in `actions`**:
+1. **Do NOT Rewrite Existing React/Vue Code**:
+   Use `tokensafe-ui/react` or `tokensafe-ui/vue` with Zustand/Redux/Context/useReducer connectors.
+2. **NO Side-Effects in `actions`** (Native Components):
    `actions` MUST be pure synchronous state reducers `(state, payload) => newState`. Network requests, timers, and storage MUST be placed under `effects`.
 3. **NO Blind File Overwriting**:
-   Always retrieve the source version via `agent_dom_get_component_source` and mutate through `agent_dom_apply_source_edit(expectedVersion)`.
+   Always retrieve the source version via `tokensafe_get_component_source` and mutate through `tokensafe_apply_source_edit(expectedVersion)` to prevent race conditions.
 4. **Mandatory `data-agent-id`**:
-   Every actionable element and component root must have `data-agent-id="<component-id>:<element-name>"`.
+   Every actionable element and component root should have `data-agent-id="<component-id>:<element-name>"`.
 
 ---
 
-## 4. MCP Server Configuration
+## 6. MCP Server Configuration
 
 To connect your coding agent to the `tokensafe-ui` MCP server, add to your MCP settings (`claude_desktop_config.json`, Antigravity `mcp.json`, or `.cursor/mcp.json`):
 
