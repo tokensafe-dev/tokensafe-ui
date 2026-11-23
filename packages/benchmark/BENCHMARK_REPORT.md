@@ -1,7 +1,7 @@
 # Agent Usability Benchmark (AUB) Report
 
 > **Scenario**: `task-manager`  
-> **Timestamp**: `2026-11-23T00:20:59.363Z`  
+> **Timestamp**: `2026-11-23T00:40:10.587Z`  
 > **Evaluation Mode**: Behavioral Test Oracle (12 Functional Acceptance Assertions)
 
 ---

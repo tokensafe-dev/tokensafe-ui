@@ -38,16 +38,30 @@ export interface BindEventPatch {
 }
 
 export interface ReplaceActionPatch {
-  op: 'replace_action';
+  op: 'replace_action' | 'update_action';
   componentId: string;
   name: string;
   code: string; // e.g. "(s) => ({ ...s, count: s.count * 2 })"
 }
 
+export interface UpdateActionPatch {
+  op: 'update_action';
+  componentId: string;
+  name: string;
+  code: string;
+}
+
 export interface PatchRenderPatch {
-  op: 'patch_render';
+  op: 'patch_render' | 'update_render';
   componentId: string;
   renderCode: string; // e.g. "({ state, emit }) => h('div', null, state.count)"
+}
+
+export interface UpdateRenderPatch {
+  op: 'update_render';
+  componentId: string;
+  renderCode?: string;
+  code?: string;
 }
 
 export interface RemoveActionPatch {
@@ -62,7 +76,9 @@ export type ComponentPatch =
   | InsertJsxPatch
   | BindEventPatch
   | ReplaceActionPatch
+  | UpdateActionPatch
   | PatchRenderPatch
+  | UpdateRenderPatch
   | RemoveActionPatch;
 
 export interface PatchResult {
@@ -100,6 +116,7 @@ export function applyPatch(sourceCode: string, patch: ComponentPatch): PatchResu
         patched = handleBindEvent(ast, patch);
         break;
       }
+      case 'update_action':
       case 'replace_action': {
         patched = handleAddAction(ast, {
           op: 'add_action',
@@ -109,8 +126,13 @@ export function applyPatch(sourceCode: string, patch: ComponentPatch): PatchResu
         });
         break;
       }
+      case 'update_render':
       case 'patch_render': {
-        patched = handlePatchRender(ast, patch);
+        patched = handlePatchRender(ast, {
+          op: 'patch_render',
+          componentId: patch.componentId,
+          renderCode: (patch as any).renderCode || (patch as any).code,
+        });
         break;
       }
       case 'remove_action': {
@@ -405,3 +427,5 @@ function parseJsxExpression(code: string): t.JSXElement {
   }
   return init;
 }
+
+export const patchComponent = applyPatch;

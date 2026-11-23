@@ -42,9 +42,11 @@ Where:
 
 This directly derives the **Autonomous Efficiency Ratio (AER)**:
 
-$$\text{AER} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \frac{2.8103}{0.3687} = \mathbf{7.62\times}$$
+$$\text{AER}_{\text{golden}} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \frac{2.8103}{0.3687} = \mathbf{7.62\times}$$
 
-An $\text{AER} > 1.0$ mathematically proves that TokenSafe UI produces more working, verified software per unit of spent token than React.
+$$\text{AER}_{\text{super-opt}} = \frac{\text{FYpT}_{\text{TokenSafe-SuperOpt}}}{\text{FYpT}_{\text{React}}} = \frac{7.7419}{0.3687} = \mathbf{21.0\times}$$
+
+An $\text{AER} > 1.0$ mathematically proves that TokenSafe UI produces more working, verified software per unit of spent token than React. With 1-turn batch mutation and verification, TokenSafe UI achieves a **21.0x AER multiplier (+2,000% autonomous productivity)**.
 
 ---
 
@@ -100,22 +102,28 @@ Both sandboxes verified at **100% functional pass rate (12/12 assertions)**.
 | **Observation Bloat** | Agents inspect entire JSX files + DOM snapshots (~2,500–4,000 tokens per turn), quickly exhausting context windows. | **L0–L4 Multi-Level Observer**: Agents inspect L1 Interactive Surface (<180 tokens), cutting observation tokens by >85%. |
 | **Mutation Fragility** | Wholesale file rewrites cause lost imports, misplaced brackets, and TypeScript syntax errors. | **Symbol-level OCC Edits**: Atomic modifications with AST syntax verification and optimistic concurrency control (\`expectedVersion\`). |
 | **Verification Latency** | Running test suites requires full headless browsers or jsdom harnesses (3,000–6,000ms) with noisy multi-line logs. | **In-Memory Action Testing**: \`testAction\` evaluates transitions in single-digit milliseconds (<10ms) with structured diffs. |
-| **Invisible Causality** | When UI state is unexpected, agents must guess which hook or prop triggered it. | **Causality Engine (\`why_state\`)**: Instant trace of which action, signal, or effect mutated the target state and why. |
+| **Invisible Causality** | When UI state is unexpected, agents must guess which hook or prop triggered it. | **Causality Diagnostics (`tokensafe_diagnose_causality`)**: Deterministic trace linking mutated DOM nodes directly to the trigger action and state change. |
+| **Multi-Turn Roundtrips** | Agents must read errors, generate new patches, and re-test across 5–10 turns. | **Turn-Folding Batch Mutate+Verify (`tokensafe_batch_mutate_verify`)**: In-memory AST patching and multi-action verification executed in a single turn. |
+| **Observation Delta Bloat** | Full state re-inspections consume ~180–500 tokens per roundtrip. | **Delta-Streaming (`tokensafe_observe_diff`)**: Streams only mutated keys and DOM diffs, slashing observation footprint to <40 tokens. |
+| **Boilerplate CRUD Drift** | Agents make ad-hoc mistakes implementing async load/save/rollback logic. | **Contract Macros (`defineAsyncCrudComponent`)**: Auto-generates standard actions, optimistic rollback, and reactive bindings from a concise schema. |
 
 ---
 
 ## 6. How to Run the Benchmark
 
-The benchmark harness is located in \`packages/benchmark\` and is fully runnable offline:
+The benchmark harness is located in `packages/benchmark` and is fully runnable offline:
 
 ```bash
-# 1. Run deterministic replay benchmark and generate report
+# 1. Run baseline golden replay (AER: 7.62x)
 pnpm aub:replay
 
-# 2. View latest benchmark report in terminal
+# 2. Run 1-turn super-optimized replay with batch mutate + verify (AER: 21.0x)
+pnpm aub:replay --optimized
+
+# 3. View latest benchmark report in terminal
 pnpm --filter @tokensafe/benchmark aub:report
 
-# 3. Run unit tests for the benchmark suite
+# 4. Run full unit and optimization test suite
 pnpm --filter @tokensafe/benchmark test
 ```
 

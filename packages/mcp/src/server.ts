@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
 import _traverse from '@babel/traverse';
 import * as t from '@babel/types';
-import { testAction, activeInstances } from '@tokensafe-ui/core';
+import { testAction, testEffect, activeInstances } from '@tokensafe-ui/core';
 import { buildDependencyGraph, observeDiff } from '@tokensafe-ui/observer';
 import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
 import { validateWorkspacePath, checkSecretLeak } from './security.js';
@@ -143,9 +143,45 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
             componentId: { type: 'string', description: 'Target component ID' },
             action: { type: 'string', description: 'Action or effect name to trigger' },
             payload: { description: 'Optional action payload' },
+            expect: { type: 'object', description: 'Optional map of expected state values to assert against' },
             filePath: { type: 'string', description: 'Optional relative path to component file' },
           },
           required: ['componentId', 'action'],
+        },
+      },
+      {
+        name: 'tokensafe_test_effect',
+        description:
+          'VERIFY (Pillar 4): Executes an asynchronous effect in memory, monitoring concurrency policies (latest-wins, take-leading, queue, parallel), AbortSignal cancellation, and dispatched actions.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            componentId: { type: 'string', description: 'Target component ID' },
+            effect: { type: 'string', description: 'Effect name to trigger' },
+            payload: { description: 'Optional effect payload' },
+            timeoutMs: { type: 'number', default: 1500, description: 'Timeout in milliseconds' },
+            expectDispatched: { type: 'array', description: 'Optional expected dispatched actions' },
+            expect: { type: 'object', description: 'Optional map of expected state values to assert against' },
+            filePath: { type: 'string', description: 'Optional relative path to component file' },
+          },
+          required: ['componentId', 'effect'],
+        },
+      },
+      {
+        name: 'tokensafe_patch_component',
+        description:
+          'MUTATE (Pillar 3): Surgically updates an action reducer or render function in the component AST by symbol name, avoiding string line-drift and formatting issues.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            componentId: { type: 'string', description: 'Target component ID' },
+            filePath: { type: 'string', description: 'Relative path to component file' },
+            target: { type: 'string', enum: ['action', 'render', 'state'], description: 'AST target to patch' },
+            name: { type: 'string', description: 'Name of action or state field (required if target is action or state)' },
+            code: { type: 'string', description: 'New code for the action, render, or state schema' },
+            expectedVersion: { type: 'string', description: 'Optional OCC version token' },
+          },
+          required: ['componentId', 'filePath', 'target', 'code'],
         },
       },
       {
@@ -386,7 +422,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       }
 
       case 'tokensafe_test_action': {
-        const { componentId, action, payload, filePath } = args as any;
+        const { componentId, action, payload, filePath, expect } = args as any;
 
         // 1. Try DevServer RPC
         const rpcResult = await callDevServerRpc(devServerUrl, 'test_action', {
@@ -394,6 +430,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
           action,
           payload,
           filePath,
+          expect,
         });
         if (rpcResult && rpcResult.result) {
           return {
@@ -402,7 +439,7 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
         }
 
         try {
-          const testResult = await testAction(componentId, action, payload);
+          const testResult = await testAction(componentId, action, payload, { expect });
           return {
             content: [{ type: 'text', text: JSON.stringify(testResult, null, 2) }],
           };
@@ -412,6 +449,150 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
             content: [{ type: 'text', text: `Action Test Failed: ${err.message}` }],
           };
         }
+      }
+
+      case 'tokensafe_test_effect': {
+        const { componentId, effect, payload, filePath, timeoutMs, expectDispatched, expect } = args as any;
+
+        // 1. Try DevServer RPC
+        const rpcResult = await callDevServerRpc(devServerUrl, 'test_effect', {
+          componentId,
+          effect,
+          payload,
+          filePath,
+          timeoutMs,
+          expectDispatched,
+          expect,
+        });
+        if (rpcResult && rpcResult.result) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify(rpcResult.result, null, 2) }],
+          };
+        }
+
+        try {
+          const effectResult = await testEffect(componentId, effect, {
+            payload,
+            timeoutMs,
+            expectDispatched,
+            expect,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(effectResult, null, 2) }],
+          };
+        } catch (err: any) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Effect Test Failed: ${err.message}` }],
+          };
+        }
+      }
+
+      case 'tokensafe_patch_component': {
+        const { componentId, filePath, target, name, code, expectedVersion } = args as any;
+
+        let resolved: string;
+        try {
+          resolved = validateWorkspacePath(filePath, projectRoot);
+        } catch (err: any) {
+          return { isError: true, content: [{ type: 'text', text: err.message }] };
+        }
+
+        if (!fs.existsSync(resolved)) {
+          return { isError: true, content: [{ type: 'text', text: `File not found: ${resolved}` }] };
+        }
+
+        const source = fs.readFileSync(resolved, 'utf-8');
+
+        // OCC check if expectedVersion provided
+        if (expectedVersion) {
+          const currentVersion = 'sha256:' + crypto.createHash('sha256').update(source).digest('hex');
+          if (expectedVersion !== currentVersion) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: `OCC Conflict: File has changed since last inspection. Expected ${expectedVersion}, got ${currentVersion}`,
+                },
+              ],
+            };
+          }
+        }
+
+        let patch: ComponentPatch;
+        if (target === 'action') {
+          if (!name) {
+            return { isError: true, content: [{ type: 'text', text: "Parameter 'name' is required when target is 'action'" }] };
+          }
+          patch = {
+            op: 'update_action',
+            componentId,
+            name,
+            code,
+          };
+        } else if (target === 'render') {
+          patch = {
+            op: 'update_render',
+            componentId,
+            renderCode: code,
+          };
+        } else if (target === 'state') {
+          if (!name) {
+            return { isError: true, content: [{ type: 'text', text: "Parameter 'name' is required when target is 'state'" }] };
+          }
+          patch = {
+            op: 'update_state',
+            componentId,
+            key: name,
+            schemaCode: code,
+          };
+        } else {
+          return { isError: true, content: [{ type: 'text', text: `Unsupported target '${target}'. Use 'action', 'render', or 'state'.` }] };
+        }
+
+        const patchResult = applyPatch(source, patch);
+        if (!patchResult.success) {
+          return { isError: true, content: [{ type: 'text', text: `AST Patch Error: ${patchResult.error}` }] };
+        }
+
+        // Secret Leak Check
+        const leakCheck = checkSecretLeak(patchResult.code);
+        if (leakCheck.hasLeak) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: `Security Guard: Commit blocked. ${leakCheck.reason}` }],
+          };
+        }
+
+        // Write modified file
+        fs.writeFileSync(resolved, patchResult.code, 'utf-8');
+
+        // Trigger module reload
+        await callDevServerRpc(devServerUrl, 'reload_module', { filePath: resolved, componentId });
+
+        const newVersion = 'sha256:' + crypto.createHash('sha256').update(patchResult.code).digest('hex');
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  componentId,
+                  filePath: path.relative(projectRoot, resolved),
+                  target,
+                  name,
+                  version: newVersion,
+                  message: `Successfully patched ${target} in ${path.basename(resolved)}`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
       }
 
       case 'tokensafe_apply_patch': {

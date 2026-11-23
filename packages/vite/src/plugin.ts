@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { transformAgentDomJsx } from './transformer.js';
 import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
-import { testAction, activeInstances } from '@tokensafe-ui/core';
+import { testAction, testEffect, hotReloadComponent, activeInstances } from '@tokensafe-ui/core';
 
 export interface TokensafeUiPluginOptions {
   enableRpc?: boolean;
@@ -85,7 +85,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
               }
 
               case 'test_action': {
-                const { componentId, action, payload, filePath } = (params || {}) as any;
+                const { componentId, action, payload, filePath, expect, assert } = (params || {}) as any;
                 try {
                   if (!activeInstances.has(componentId)) {
                     const candidates = [
@@ -116,7 +116,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                     }
                   }
 
-                  const testResult = await testAction(componentId, action, payload);
+                  const testResult = await testAction(componentId, action, payload, { expect, assert });
                   res.end(JSON.stringify({ result: testResult }));
                 } catch (err: any) {
                   res.statusCode = 500;
@@ -125,8 +125,54 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                 break;
               }
 
+              case 'test_effect': {
+                const { componentId, effect, payload, filePath, timeoutMs, expectDispatched, expect } = (params || {}) as any;
+                try {
+                  if (!activeInstances.has(componentId)) {
+                    const candidates = [
+                      filePath,
+                      path.join(server.config.root, 'src', `${componentId}.tsx`),
+                      path.join(server.config.root, 'src', 'OrderCheckout.tsx'),
+                      path.join(server.config.root, 'src', 'App.tsx'),
+                      path.join(server.config.root, 'src', 'main.ts'),
+                    ].filter(Boolean);
+
+                    for (const cand of candidates) {
+                      const resolvedCand = path.isAbsolute(cand)
+                        ? cand
+                        : path.resolve(server.config.root, cand);
+                      if (fs.existsSync(resolvedCand)) {
+                        try {
+                          const mod = await server.ssrLoadModule(resolvedCand);
+                          for (const exp of Object.values(mod)) {
+                            if (typeof exp === 'function' && !activeInstances.has(componentId)) {
+                              try {
+                                exp();
+                              } catch {}
+                            }
+                          }
+                        } catch {}
+                        if (activeInstances.has(componentId)) break;
+                      }
+                    }
+                  }
+
+                  const effectResult = await testEffect(componentId, effect, {
+                    payload,
+                    timeoutMs,
+                    expectDispatched,
+                    expect,
+                  });
+                  res.end(JSON.stringify({ result: effectResult }));
+                } catch (err: any) {
+                  res.statusCode = 500;
+                  res.end(JSON.stringify({ error: err.message }));
+                }
+                break;
+              }
+
               case 'reload_module': {
-                const { filePath } = (params || {}) as any;
+                const { filePath, componentId } = (params || {}) as any;
                 if (filePath) {
                   const resolvedPath = path.isAbsolute(filePath)
                     ? filePath
@@ -141,7 +187,14 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                     for (const exp of Object.values(freshMod)) {
                       if (typeof exp === 'function') {
                         try {
-                          exp();
+                          if (componentId) {
+                            hotReloadComponent(componentId, exp as any);
+                          } else {
+                            const inst = (exp as any)();
+                            if (inst && inst.id) {
+                              hotReloadComponent(inst.id, exp as any);
+                            }
+                          }
                         } catch {}
                       }
                     }
@@ -181,11 +234,28 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                 // Write modified file
                 fs.writeFileSync(resolvedPath, patchResult.code, 'utf-8');
 
-                // Trigger Vite HMR
+                // Trigger Vite HMR & SSR reload
                 const mod = server.moduleGraph.getModuleById(resolvedPath);
                 if (mod) {
+                  server.moduleGraph.invalidateModule(mod);
                   server.reloadModule(mod);
                 }
+                try {
+                  const freshMod = await server.ssrLoadModule(resolvedPath);
+                  const cid = (patch as any).componentId;
+                  for (const exp of Object.values(freshMod)) {
+                    if (typeof exp === 'function') {
+                      try {
+                        if (cid) {
+                          hotReloadComponent(cid, exp as any);
+                        } else {
+                          const inst = (exp as any)();
+                          if (inst && inst.id) hotReloadComponent(inst.id, exp as any);
+                        }
+                      } catch {}
+                    }
+                  }
+                } catch {}
 
                 res.end(
                   JSON.stringify({

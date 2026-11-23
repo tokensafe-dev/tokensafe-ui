@@ -14,11 +14,11 @@ import type {
   RuntimeTelemetryEvent,
 } from './types.js';
 
+import { GLOBAL_KEYS, getGlobalRegistry } from './globals.js';
+
 // Global registry for live component instances (used by observer & patcher)
-const GLOBAL_INSTANCES_KEY = Symbol.for('tokensafe-ui.activeInstances');
 export const activeInstances: Map<string, ComponentInstance<any, any, any, any>> =
-  (globalThis as any)[GLOBAL_INSTANCES_KEY] ||
-  ((globalThis as any)[GLOBAL_INSTANCES_KEY] = new Map<string, ComponentInstance<any, any, any, any>>());
+  getGlobalRegistry(GLOBAL_KEYS.ACTIVE_INSTANCES, () => new Map<string, ComponentInstance<any, any, any, any>>());
 
 export function defineComponent<
   TSchema extends StateSchema,
@@ -30,13 +30,21 @@ export function defineComponent<
   const zodSchema = z.object(config.state);
 
   return function createComponent(props: TProps = {} as TProps): ComponentInstance<TSchema, TActions, TEffects, TProps> {
+    let instance: ComponentInstance<TSchema, TActions, TEffects, TProps>;
+
     // 1. Initialize state with defaults or provided values
     const initialOverrides = (props as any)?.initialState || config.initialState || {};
     const rawDefault = zodSchema.parse(initialOverrides);
+    const existingSignals = (props as any)?._existingSignals;
     const stateSignals: Record<string, Signal<any>> = {};
 
     for (const [key, val] of Object.entries(rawDefault)) {
-      stateSignals[key] = signal(val, { name: `${config.id}.${key}` });
+      if (existingSignals && existingSignals[key]) {
+        stateSignals[key] = existingSignals[key];
+        stateSignals[key].value = val;
+      } else {
+        stateSignals[key] = signal(val, { name: `${config.id}.${key}` });
+      }
     }
 
     // Proxy to read/write reactive values seamlessly via state.<key>
@@ -152,7 +160,7 @@ export function defineComponent<
 
       try {
         const ctx = {
-          dispatch: (name: string, p?: any) => dispatch(name, p),
+          dispatch: (name: string, p?: any) => (instance ? instance.dispatch(name as any, p) : dispatch(name as any, p)),
           signal: controller.signal,
           state: stateProxy,
         };
@@ -338,7 +346,7 @@ export function defineComponent<
       }
     };
 
-    const instance: ComponentInstance<TSchema, TActions, TEffects, TProps> = {
+    instance = {
       id: config.id,
       config,
       signals: stateSignals as any,
@@ -363,4 +371,63 @@ export function defineComponent<
     activeInstances.set(config.id, instance);
     return instance;
   };
+}
+
+/**
+ * Hot-reloads an active component instance in memory while preserving its active state signals.
+ * Replaces actions, effects, and render function with the new configuration.
+ */
+export function hotReloadComponent(
+  id: string,
+  newConfigOrFactory: ComponentConfig<any, any, any, any> | ((...args: any[]) => any)
+): ComponentInstance<any, any, any, any> | null {
+  const existing = activeInstances.get(id);
+
+  if (!existing) {
+    if (typeof newConfigOrFactory === 'function') {
+      return (newConfigOrFactory as any)();
+    }
+    return null;
+  }
+
+  let newConfig: ComponentConfig<any, any, any, any>;
+  if (typeof newConfigOrFactory === 'function') {
+    const tempInstance = (newConfigOrFactory as any)(existing.props);
+    newConfig = tempInstance.config;
+    // Restore existing in activeInstances
+    activeInstances.set(id, existing);
+  } else {
+    newConfig = newConfigOrFactory;
+  }
+
+  // 1. Preserve and validate existing signals
+  const currentState: Record<string, any> = {};
+  for (const [k, sig] of Object.entries(existing.signals)) {
+    currentState[k] = (sig as any).peek();
+  }
+
+  // 2. Abort any previous in-flight effects
+  existing.abortAll();
+
+  // 3. Update config reference
+  existing.config = newConfig;
+
+  // 4. Re-bind actions and effects using the new component factory logic, passing existing signals
+  const factory = defineComponent(newConfig);
+  const freshInstance = factory({
+    ...existing.props,
+    initialState: currentState,
+    _existingSignals: existing.signals,
+  } as any);
+
+  // Transfer methods & emitters to existing instance
+  existing.dispatch = freshInstance.dispatch;
+  existing.emit = freshInstance.emit;
+  existing.vnode = freshInstance.vnode;
+  existing.abortAll = freshInstance.abortAll;
+
+  // Keep same instance identity in registry
+  activeInstances.set(id, existing);
+
+  return existing;
 }

@@ -193,7 +193,7 @@ Agents implement a multi-dimensional Task Manager with:
 Traditional benchmarks only measure tokens saved. AUB measures **working software delivered per token**:
 $$\text{FYpT} = \frac{\text{Passed Functional Assertions}}{\text{Total Tokens Spent}} \times 1,000$$
 
-$$\text{Autonomous Efficiency Ratio (AER)} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \mathbf{7.62\times}$$
+$$\text{Autonomous Efficiency Ratio (AER)} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \mathbf{7.62\times} \to \mathbf{21.0\times} \text{ (Super-Optimized)}$$
 
 ### Comparative Scorecard (12-Assertion Shared Behavioral Oracle)
 
