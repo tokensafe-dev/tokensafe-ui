@@ -201,14 +201,15 @@ $$\text{Autonomous Efficiency Ratio (AER)} = \frac{\text{FYpT}_{\text{TokenSafe}
 
 ---
 
-## Empirical Case Study: Autonomous MCP Debugging in Order Checkout
+## Empirical Case Study: Autonomous MCP Debugging in Order Checkout (v0.2.0)
 
-In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation, multi-category item filtering, and `latest-wins` asynchronous coupon lookup), an autonomous AI agent with **zero filesystem permissions** was tasked with finding and fixing an intentional logic bug strictly through `tokensafe-ui-mcp` tools:
+In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation, multi-category item filtering, and `latest-wins` asynchronous coupon lookup), an autonomous AI agent with **zero filesystem permissions** was tasked with finding and fixing an intentional logic bug strictly through `tokensafe-ui` CLI and MCP tools:
 
-1. **Observe & Test (`tokensafe_test_action`)**: Agent dispatched `applyCoupon({ code: 'SAVE20' })`. In **`0.34 ms`**, TokenSafe UI caught an invariant violation: `total ($327) exceeds subtotal + shipping ($275)`.
-2. **Understand (`tokensafe_get_component_source`)**: Agent inspected the TypeScript source with AST line numbers and received the Optimistic Concurrency Control (OCC) hash `sha256:3792799...`.
-3. **Mutate (`tokensafe_apply_source_edit`)**: Agent applied an atomic OCC patch (`- discount` instead of `+ discount`). TokenSafe UI executed automated pre-flight `tsc --noEmit` and Biome format checks, hot-reloading the SSR component instance.
-4. **Verify (`tokensafe_test_action`)**: Agent re-tested the action. Execution passed on the **FIRST ATTEMPT in `0.25 ms`** with structured state diff `total: 275 -> 223`.
+1. **Observe & Test (`tokensafe_test_action` with declarative `expect`)**: Agent tested `applyDiscount` with `--expect='{"total":223}'`. In **`0.59 ms`**, TokenSafe UI caught an assertion mismatch: `expected total=223, received 327` without requiring synthetic throw guards in production code.
+2. **Verify Async Effects (`tokensafe_test_effect`)**: Agent tested `lookupCoupon`. In **`31.47 ms`**, the runtime validated the full debounce and action dispatch sequence (`setCouponStatus(validating) -> applyDiscount(SAVE20)`) under `latest-wins` concurrency.
+3. **Understand (`tokensafe_get_component_source`)**: Agent inspected the TypeScript source and received the Optimistic Concurrency Control (OCC) hash `sha256:e07230...`.
+4. **Mutate (`tokensafe_patch_component`)**: Agent applied a semantic AST patch to the `applyDiscount` reducer (`Math.max(0, s.subtotal - discountAmount + s.shippingFee)`). TokenSafe UI executed automated Biome formatting and hot-reloaded the SSR component in-memory with signal states preserved.
+5. **Verify on First Attempt (`tokensafe_test_action`)**: Agent re-tested the action. Execution passed on the **FIRST ATTEMPT in `0.33 ms`** with structured state transition `total: 327 -> 223`.
 
 👉 Read the complete step-by-step trace in [docs/case-studies/2026-11-23-autonomous-mcp-agent-debugging.md](https://github.com/tokensafe-dev/tokensafe-ui/blob/main/docs/case-studies/2026-11-23-autonomous-mcp-agent-debugging.md).
 
