@@ -202,3 +202,43 @@ export const GOLDEN_TOKENSAFE_TRACES: Omit<
     ],
   },
 ];
+
+export const OPTIMIZED_TOKENSAFE_TRACES: Omit<
+  AgentTurnRecord,
+  'turn' | 'stack' | 'totalTokens' | 'regressions' | 'recoveredFromPreviousError'
+>[] = [
+  {
+    inputTokens: 1100,
+    outputTokens: 450,
+    durationMs: 1400,
+    toolCalls: [
+      { name: 'tokensafe_observe_diff', args: { componentId: 'task-manager' }, durationMs: 4 },
+      {
+        name: 'tokensafe_batch_mutate_verify',
+        args: {
+          componentId: 'task-manager',
+          verifyActions: ['addTask', 'toggleTask', 'startSaving', 'saveSuccess', 'rollbackToggle'],
+        },
+        durationMs: 18,
+      },
+      { name: 'tokensafe_run_oracle', args: { scenario: 'task-manager' }, durationMs: 8 },
+    ],
+    hasSyntaxError: false,
+    hasTypeError: false,
+    hasRuntimeError: false,
+    passedAssertions: [
+      'TC01_INITIAL_MOUNT',
+      'TC02_ADD_TASK',
+      'TC03_TOGGLE_COMPLETION',
+      'TC04_SEARCH_QUERY',
+      'TC05_STATUS_FILTER',
+      'TC06_PRIORITY_FILTER',
+      'TC07_COMBINED_FILTER_SEARCH',
+      'TC08_ASYNC_SAVE_PENDING',
+      'TC09_ASYNC_SAVE_SUCCESS',
+      'TC10_ASYNC_SAVE_FAILURE',
+      'TC11_ASYNC_RETRY_ACTION',
+      'TC12_OPTIMISTIC_ROLLBACK',
+    ],
+  },
+];

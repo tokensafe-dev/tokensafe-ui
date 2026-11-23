@@ -24,19 +24,23 @@ export function h(
   };
 }
 
-export function mount(instance: ComponentInstance<any, any, any>, container: HTMLElement): HTMLElement {
+export function mount(
+  instance: ComponentInstance<any, any, any>,
+  container?: HTMLElement
+): HTMLElement {
+  const targetContainer = container || document.createElement('div');
   // If container already hosts an active component, unmount it cleanly first
-  const prevInstance = (container as any).__tokensafe_instance__;
+  const prevInstance = (targetContainer as any).__tokensafe_instance__;
   if (prevInstance && typeof prevInstance.unmount === 'function') {
     prevInstance.unmount();
   }
 
   const root = renderVNode(instance.vnode, instance);
-  container.innerHTML = '';
-  container.appendChild(root);
+  targetContainer.innerHTML = '';
+  targetContainer.appendChild(root);
 
   instance.isMounted = true;
-  (container as any).__tokensafe_instance__ = instance;
+  (targetContainer as any).__tokensafe_instance__ = instance;
 
   if (root instanceof HTMLElement) {
     instance.rootElement = root;
@@ -472,17 +476,70 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
   // Render children
   for (const child of node.children) {
     if (typeof child === 'function') {
-      // Reactive text child binding
-      const textNode = document.createTextNode('');
       const parentAgentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
+      // Use dynamic anchors for reactive child rendering
+      const startAnchor = document.createComment(`tokensafe:dyn-start`);
+      const endAnchor = document.createComment(`tokensafe:dyn-end`);
+      el.appendChild(startAnchor);
+      el.appendChild(endAnchor);
+
+      let currentNodes: Node[] = [];
+      const textNode = document.createTextNode('');
+
       const stop = effect(() => {
-        textNode.textContent = String(child());
+        const val = child();
+
+        // 1. Array of VNodes / children: [h('li', ...), h('li', ...)]
+        if (Array.isArray(val)) {
+          for (const n of currentNodes) {
+            if (n.parentNode) n.parentNode.removeChild(n);
+          }
+          currentNodes = [];
+          for (const item of val) {
+            if (item !== null && item !== undefined && typeof item !== 'boolean') {
+              const rendered = renderVNode(item, instance);
+              endAnchor.parentNode?.insertBefore(rendered, endAnchor);
+              currentNodes.push(rendered);
+            }
+          }
+          return;
+        }
+
+        // 2. Single VNode object: { type: ..., props: ... }
+        if (val && typeof val === 'object' && ('type' in val || 'props' in val)) {
+          for (const n of currentNodes) {
+            if (n.parentNode) n.parentNode.removeChild(n);
+          }
+          currentNodes = [];
+          const rendered = renderVNode(val, instance);
+          endAnchor.parentNode?.insertBefore(rendered, endAnchor);
+          currentNodes.push(rendered);
+          return;
+        }
+
+        // 3. Null or false or undefined: render nothing
+        if (val === null || val === undefined || typeof val === 'boolean') {
+          for (const n of currentNodes) {
+            if (n.parentNode) n.parentNode.removeChild(n);
+          }
+          currentNodes = [];
+          return;
+        }
+
+        // 4. Primitive text / number: bind to text node
+        for (const n of currentNodes) {
+          if (n !== textNode && n.parentNode) n.parentNode.removeChild(n);
+        }
+        textNode.textContent = String(val);
+        if (!textNode.parentNode) {
+          endAnchor.parentNode?.insertBefore(textNode, endAnchor);
+        }
+        currentNodes = [textNode];
       }, {
-        name: `dom:${parentAgentId}.text`,
+        name: `dom:${parentAgentId}.reactive-child`,
         kind: 'dom_binding',
       });
       if (cleanups) cleanups.add(stop);
-      el.appendChild(textNode);
     } else {
       el.appendChild(renderVNode(child, instance));
     }

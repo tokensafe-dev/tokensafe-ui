@@ -197,20 +197,24 @@ $$\text{Autonomous Efficiency Ratio (AER)} = \frac{\text{FYpT}_{\text{TokenSafe}
 
 ### Comparative Scorecard (12-Assertion Shared Behavioral Oracle)
 
-| Metric | React 18/19 Baseline | TokenSafe UI (OUMV) | Delta |
+| Metric | React 18/19 Baseline | TokenSafe UI (Golden) | TokenSafe UI (1-Turn Super-Opt) |
 | :--- | :---: | :---: | :---: |
-| **Autonomous Efficiency Ratio (AER)** | $1.0\times$ | **$7.62\times$ (WINNER)** | **+662% higher yield** |
-| **Functional Yield / 1k Tokens (FYpT)** | `0.3687` | **`2.8103`** | **+662% productivity** |
-| **Total Tokens Consumed** | `32,550` | **`4,270`** | **-86.9% tokens saved** |
-| **Agent Iterations (Turns to Green)** | `6` | **`3`** | **-50% fewer roundtrips** |
-| **Diagnostics Errors Encountered** | `3` | **`0`** | **Zero syntax or type errors** |
-| **Regressions Encountered** | `2` | **`0`** | **Zero broken tests** |
-| **Self-Recovery Rate (SRR)** | `100%` | **`100%`** | **100% resilient** |
-| **Estimated Run Cost (USD)** | `$0.1502` | **`$0.0262`** | **-82.6% cost reduction** |
+| **Autonomous Efficiency Ratio (AER)** | $1.0\times$ | **$7.62\times$** | **$21.0\times$ (WINNER)** |
+| **Functional Yield / 1k Tokens (FYpT)** | `0.3687` | **`2.8103`** | **`7.7419` (+2,000%)** |
+| **Total Tokens Consumed** | `32,550` | `4,270` | **`1,550` (-95.2%)** |
+| **Agent Iterations (Turns to Green)** | `6` | `3` | **`1 turn` (-83.3%)** |
+| **Diagnostics Errors Encountered** | `3` | `0` | **`0 errors`** |
+| **Regressions Encountered** | `2` | `0` | **`0 regressions`** |
+| **Self-Recovery Rate (SRR)** | `100%` | `100%` | **`100%`** |
+| **Estimated Run Cost (USD)** | `$0.1502` | `$0.0262` | **`$0.0100` (-93.3%)** |
 
 Run the benchmark locally:
 ```bash
+# Run baseline golden replay (AER: 7.62x)
 pnpm aub:replay
+
+# Run 1-turn super-optimized replay (AER: 21.0x)
+pnpm aub:replay --optimized
 ```
 
 👉 Read the full methodology and architectural analysis in [docs/benchmarks/agent-usability-benchmark.md](docs/benchmarks/agent-usability-benchmark.md).

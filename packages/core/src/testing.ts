@@ -1,6 +1,55 @@
 import { activeInstances } from './component.js';
 import type { ComponentInstance } from './types.js';
 
+/**
+ * Auto-initializes a headless DOM environment (happy-dom) if running inside bare Node.js
+ * where document and window are undefined.
+ */
+export async function ensureHeadlessDom(): Promise<void> {
+  if (typeof document === 'undefined') {
+    try {
+      const { Window } = await import('happy-dom');
+      const win = new Window();
+      (globalThis as any).window = win;
+      (globalThis as any).document = win.document;
+      (globalThis as any).HTMLElement = win.HTMLElement;
+      (globalThis as any).HTMLButtonElement = win.HTMLButtonElement;
+      (globalThis as any).HTMLInputElement = win.HTMLInputElement;
+      (globalThis as any).customElements = win.customElements;
+    } catch {
+      // Fallback: minimal in-memory shim if happy-dom is not installed
+      if (typeof (globalThis as any).document === 'undefined') {
+        const dummyElement = () => ({
+          tagName: 'DIV',
+          getAttribute: () => null,
+          setAttribute: () => {},
+          removeAttribute: () => {},
+          appendChild: (c: any) => c,
+          insertBefore: (c: any) => c,
+          removeChild: (c: any) => c,
+          childNodes: [],
+          innerHTML: '',
+          textContent: '',
+          style: {},
+          className: '',
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          querySelectorAll: () => [],
+          querySelector: () => null,
+        });
+        (globalThis as any).document = {
+          createElement: dummyElement,
+          createTextNode: (txt: string) => ({ nodeType: 3, textContent: txt, parentNode: null }),
+          createComment: (txt: string) => ({ nodeType: 8, textContent: txt, parentNode: null }),
+          createDocumentFragment: () => ({ appendChild: (c: any) => c, childNodes: [] }),
+          body: dummyElement(),
+        };
+        (globalThis as any).window = globalThis;
+      }
+    }
+  }
+}
+
 export interface StateDiff {
   [key: string]: {
     before: any;
@@ -46,6 +95,7 @@ export async function testAction(
   actionName: string,
   payload?: any
 ): Promise<TestActionResult> {
+  await ensureHeadlessDom();
   const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
   const instance =

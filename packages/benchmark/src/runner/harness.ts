@@ -3,7 +3,11 @@ import type {
   ComparativeSummary,
 } from '../types.js';
 import { MetricsCollector } from './metrics-collector.js';
-import { GOLDEN_REACT_TRACES, GOLDEN_TOKENSAFE_TRACES } from './replay-traces.js';
+import {
+  GOLDEN_REACT_TRACES,
+  GOLDEN_TOKENSAFE_TRACES,
+  OPTIMIZED_TOKENSAFE_TRACES,
+} from './replay-traces.js';
 import { TaskManagerOracle } from '../oracle/task-manager-oracle.js';
 import { createReactTaskManagerAdapter } from '../../sandboxes/react-task-manager/src/adapter.js';
 import { createTokenSafeTaskManagerAdapter } from '../../sandboxes/tokensafe-task-manager/src/adapter.js';
@@ -45,7 +49,7 @@ export class BenchmarkHarness {
   /**
    * Executes deterministic golden replay benchmark comparing React vs TokenSafe UI
    */
-  public async runReplayBenchmark(): Promise<ComparativeSummary> {
+  public async runReplayBenchmark(options: { optimized?: boolean } = {}): Promise<ComparativeSummary> {
     // 1. Verify ground truth functionality first
     const groundTruth = await this.evaluateGroundTruth();
     if (!groundTruth.reactReport.allPassed) {
@@ -64,10 +68,11 @@ export class BenchmarkHarness {
     reactCollector.stop();
     const reactResult: BenchmarkRunResult = reactCollector.finalize(12);
 
-    // 3. Execute TokenSafe Replay Run
+    // 3. Execute TokenSafe Replay Run (Golden or Super-Optimized 1-turn)
     const tokenSafeCollector = new MetricsCollector('tokensafe', this.scenario);
     tokenSafeCollector.start();
-    for (const turnData of GOLDEN_TOKENSAFE_TRACES) {
+    const tokenSafeTraces = options.optimized ? OPTIMIZED_TOKENSAFE_TRACES : GOLDEN_TOKENSAFE_TRACES;
+    for (const turnData of tokenSafeTraces) {
       tokenSafeCollector.recordTurn(turnData);
     }
     tokenSafeCollector.stop();

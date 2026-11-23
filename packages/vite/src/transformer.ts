@@ -9,13 +9,15 @@ const generate = (_generate as any).default || _generate;
 export interface TransformResult {
   code: string;
   map?: any;
+  warnings?: string[];
 }
 
 /**
- * Transforms JSX in agent-dom components:
+ * Transforms JSX in tokensafe-ui components:
  * 1. Auto-injects `data-agent-id` if absent.
  * 2. Wraps dynamic state/signals expressions in getter functions.
  * 3. Transforms JSX into h() function calls.
+ * 4. Lints dynamic lists and suggests <For> components.
  */
 export function transformAgentDomJsx(sourceCode: string, filename: string): TransformResult {
   if (!sourceCode.includes('defineComponent') && !sourceCode.includes('<')) {
@@ -29,6 +31,7 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
 
   let needsHImport = false;
   let elementIndex = 0;
+  const warnings: string[] = [];
 
   // 1. Process JSX elements and inject data-agent-id
   traverse(ast, {
@@ -59,6 +62,24 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
       path.node.children = path.node.children.map((child: any) => {
         if (t.isJSXExpressionContainer(child)) {
           const expr = child.expression;
+
+          // Lint dynamic array mapping in child expression
+          if (
+            (t.isCallExpression(expr) &&
+              t.isMemberExpression(expr.callee) &&
+              t.isIdentifier(expr.callee.property) &&
+              expr.callee.property.name === 'map') ||
+            (t.isArrowFunctionExpression(expr) &&
+              t.isCallExpression(expr.body) &&
+              t.isMemberExpression(expr.body.callee) &&
+              t.isIdentifier(expr.body.callee.property) &&
+              expr.body.callee.property.name === 'map')
+          ) {
+            warnings.push(
+              `[TokenSafe UI Linter] Functional array mapping detected in ${filename}. Wrapping with <For each={...} key="..."> is recommended for optimal reconciliation.`
+            );
+          }
+
           if (
             t.isMemberExpression(expr) ||
             t.isBinaryExpression(expr) ||
@@ -186,5 +207,6 @@ export function transformAgentDomJsx(sourceCode: string, filename: string): Tran
   return {
     code: output.code,
     map: output.map,
+    warnings,
   };
 }

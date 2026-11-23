@@ -1,6 +1,6 @@
 {
   "scenario": "task-manager",
-  "timestamp": "2026-11-22T23:25:45.092Z",
+  "timestamp": "2026-11-23T00:20:59.363Z",
   "react": {
     "stack": "react",
     "scenario": "task-manager",
@@ -273,150 +273,53 @@
   "tokensafe": {
     "stack": "tokensafe",
     "scenario": "task-manager",
-    "totalTurns": 3,
-    "inputTokens": 3150,
-    "outputTokens": 1120,
-    "totalTokens": 4270,
-    "contextSlope": 335,
+    "totalTurns": 1,
+    "inputTokens": 1100,
+    "outputTokens": 450,
+    "totalTokens": 1550,
+    "contextSlope": 0,
     "wallClockSeconds": 0,
     "passedAssertionsCount": 12,
     "totalAssertionsCount": 12,
     "errorCount": 0,
     "regressionCount": 0,
     "selfRecoveryRate": 100,
-    "functionalYieldPerToken": 2.8103,
-    "costUsd": 0.0262,
-    "costYield": 458.02,
+    "functionalYieldPerToken": 7.7419,
+    "costUsd": 0.01,
+    "costYield": 1200,
     "turns": [
       {
-        "inputTokens": 680,
-        "outputTokens": 380,
-        "durationMs": 3100,
+        "inputTokens": 1100,
+        "outputTokens": 450,
+        "durationMs": 1400,
         "toolCalls": [
           {
-            "name": "agent_dom_observe",
-            "args": {
-              "level": "L1"
-            },
-            "durationMs": 12
-          },
-          {
-            "name": "agent_dom_get_component_source",
+            "name": "tokensafe_observe_diff",
             "args": {
               "componentId": "task-manager"
             },
-            "durationMs": 15
+            "durationMs": 4
           },
           {
-            "name": "agent_dom_apply_source_edit",
-            "args": {
-              "componentId": "task-manager"
-            },
-            "durationMs": 25
-          },
-          {
-            "name": "agent_dom_test_action",
+            "name": "tokensafe_batch_mutate_verify",
             "args": {
               "componentId": "task-manager",
-              "action": "addTask"
+              "verifyActions": [
+                "addTask",
+                "toggleTask",
+                "startSaving",
+                "saveSuccess",
+                "rollbackToggle"
+              ]
             },
-            "durationMs": 6
-          }
-        ],
-        "hasSyntaxError": false,
-        "hasTypeError": false,
-        "hasRuntimeError": false,
-        "passedAssertions": [
-          "TC01_INITIAL_MOUNT",
-          "TC02_ADD_TASK",
-          "TC03_TOGGLE_COMPLETION",
-          "TC04_SEARCH_QUERY",
-          "TC05_STATUS_FILTER",
-          "TC06_PRIORITY_FILTER",
-          "TC07_COMBINED_FILTER_SEARCH"
-        ],
-        "turn": 1,
-        "stack": "tokensafe",
-        "totalTokens": 1060,
-        "regressions": [],
-        "recoveredFromPreviousError": false
-      },
-      {
-        "inputTokens": 1120,
-        "outputTokens": 420,
-        "durationMs": 3400,
-        "toolCalls": [
+            "durationMs": 18
+          },
           {
-            "name": "agent_dom_understand",
+            "name": "tokensafe_run_oracle",
             "args": {
-              "query": "impact",
-              "target": "tasks"
+              "scenario": "task-manager"
             },
             "durationMs": 8
-          },
-          {
-            "name": "agent_dom_apply_source_edit",
-            "args": {
-              "componentId": "task-manager"
-            },
-            "durationMs": 22
-          },
-          {
-            "name": "agent_dom_test_action",
-            "args": {
-              "componentId": "task-manager",
-              "action": "startSaving"
-            },
-            "durationMs": 5
-          }
-        ],
-        "hasSyntaxError": false,
-        "hasTypeError": false,
-        "hasRuntimeError": false,
-        "passedAssertions": [
-          "TC01_INITIAL_MOUNT",
-          "TC02_ADD_TASK",
-          "TC03_TOGGLE_COMPLETION",
-          "TC04_SEARCH_QUERY",
-          "TC05_STATUS_FILTER",
-          "TC06_PRIORITY_FILTER",
-          "TC07_COMBINED_FILTER_SEARCH",
-          "TC08_ASYNC_SAVE_PENDING",
-          "TC09_ASYNC_SAVE_SUCCESS",
-          "TC10_ASYNC_SAVE_FAILURE"
-        ],
-        "turn": 2,
-        "stack": "tokensafe",
-        "totalTokens": 1540,
-        "regressions": [],
-        "recoveredFromPreviousError": false
-      },
-      {
-        "inputTokens": 1350,
-        "outputTokens": 320,
-        "durationMs": 2800,
-        "toolCalls": [
-          {
-            "name": "agent_dom_apply_source_edit",
-            "args": {
-              "componentId": "task-manager"
-            },
-            "durationMs": 20
-          },
-          {
-            "name": "agent_dom_test_action",
-            "args": {
-              "componentId": "task-manager",
-              "action": "rollbackToggle"
-            },
-            "durationMs": 5
-          },
-          {
-            "name": "agent_dom_observe",
-            "args": {
-              "level": "L0"
-            },
-            "durationMs": 6
           }
         ],
         "hasSyntaxError": false,
@@ -436,19 +339,19 @@
           "TC11_ASYNC_RETRY_ACTION",
           "TC12_OPTIMISTIC_ROLLBACK"
         ],
-        "turn": 3,
+        "turn": 1,
         "stack": "tokensafe",
-        "totalTokens": 1670,
+        "totalTokens": 1550,
         "regressions": [],
         "recoveredFromPreviousError": false
       }
     ],
     "passed": true
   },
-  "autonomousEfficiencyRatio": 7.62,
-  "tokenSavingsPct": 87,
-  "turnReductionPct": 50,
+  "autonomousEfficiencyRatio": 21,
+  "tokenSavingsPct": 95,
+  "turnReductionPct": 83,
   "latencyReductionPct": 0,
   "regressionReductionPct": 100,
-  "summaryText": "TokenSafe UI achieved an Autonomous Efficiency Ratio (AER) of 7.62x with 87% fewer tokens, 50% fewer iterations, and 100% fewer regressions compared to React."
+  "summaryText": "TokenSafe UI achieved an Autonomous Efficiency Ratio (AER) of 21x with 95% fewer tokens, 83% fewer iterations, and 100% fewer regressions compared to React."
 }

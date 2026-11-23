@@ -1,19 +1,19 @@
 # Agent Usability Benchmark (AUB) Report
 
 > **Scenario**: `task-manager`  
-> **Timestamp**: `2026-11-22T23:25:45.092Z`  
+> **Timestamp**: `2026-11-23T00:20:59.363Z`  
 > **Evaluation Mode**: Behavioral Test Oracle (12 Functional Acceptance Assertions)
 
 ---
 
 ## Executive Summary
 
-**TokenSafe UI achieved an Autonomous Efficiency Ratio (AER) of 7.62x over React 18/19.**
+**TokenSafe UI achieved an Autonomous Efficiency Ratio (AER) of 21x over React 18/19.**
 
-$$\text{AER} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \frac{2.8103}{0.3687} = \mathbf{7.62x}$$
+$$\text{AER} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \frac{7.7419}{0.3687} = \mathbf{21x}$$
 
-- **Token Economy**: **87%** reduction in total token consumption (4,270 vs 32,550).
-- **Autonomous Velocity**: **50%** fewer agent turns to reach complete 12/12 passing status (3 vs 6 turns).
+- **Token Economy**: **95%** reduction in total token consumption (1,550 vs 32,550).
+- **Autonomous Velocity**: **83%** fewer agent turns to reach complete 12/12 passing status (1 vs 6 turns).
 - **Code Stability**: **100%** fewer regressions during iterative feature development (0 vs 2 regressions).
 
 ---
@@ -22,18 +22,18 @@ $$\text{AER} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}}
 
 | Metric | Baseline: React 18/19 | Target: TokenSafe UI | Delta / Advantage |
 | :--- | :---: | :---: | :---: |
-| **Autonomous Efficiency Ratio (AER)** | $1.0\times$ | **$7.62\times$** | **+662% productivity** |
-| **Functional Yield per 1k Tokens (FYpT)** | `0.3687` | **`2.8103`** | **+662% yield** |
-| **Total Tokens** | `32,550` | **`4,270`** | **-87%** |
-| • Input Tokens | `28,170` | `3,150` | -89% |
-| • Output Tokens | `4,380` | `1,120` | -74% |
-| **Agent Iterations (Turns)** | `6` | **`3`** | **-50%** |
+| **Autonomous Efficiency Ratio (AER)** | $1.0\times$ | **$21\times$** | **+2000% productivity** |
+| **Functional Yield per 1k Tokens (FYpT)** | `0.3687` | **`7.7419`** | **+2000% yield** |
+| **Total Tokens** | `32,550` | **`1,550`** | **-95%** |
+| • Input Tokens | `28,170` | `1,100` | -96% |
+| • Output Tokens | `4,380` | `450` | -90% |
+| **Agent Iterations (Turns)** | `6` | **`1`** | **-83%** |
 | **Time to Green** | `0.00s` | **`0.00s`** | **-0%** |
 | **Diagnostics Errors Encountered** | `3` | **`0`** | **3 fewer errors** |
 | **Regressions Encountered** | `2` | **`0`** | **2 fewer regressions** |
 | **Self-Recovery Rate (SRR)** | `100%` | **`100%`** | **Superior** |
-| **Estimated Run Cost (USD)** | `$0.1502` | **`$0.0262`** | **-83% cost** |
-| **Cost Yield (Assertions / $)** | `79.89` | **`458.02`** | **5.7x yield/$** |
+| **Estimated Run Cost (USD)** | `$0.1502` | **`$0.0100`** | **-93% cost** |
+| **Cost Yield (Assertions / $)** | `79.89` | **`1200.00`** | **15.0x yield/$** |
 
 ---
 

@@ -32,8 +32,9 @@ async function main() {
     console.log(`   ✓ React Sandbox Oracle: ${groundTruth.reactReport.passedCount}/12 assertions passed`);
     console.log(`   ✓ TokenSafe UI Sandbox Oracle: ${groundTruth.tokenSafeReport.passedCount}/12 assertions passed\n`);
 
-    console.log(`⏳ Simulating Agent Iterations & Telemetry Collection...`);
-    const summary = await harness.runReplayBenchmark();
+    const isOptimized = args.includes('--optimized');
+    console.log(`⏳ Simulating Agent Iterations & Telemetry Collection (${isOptimized ? 'Super-Optimized 1-turn' : 'Golden Trace'})...`);
+    const summary = await harness.runReplayBenchmark({ optimized: isOptimized });
 
     const terminalReport = BenchmarkReporter.formatTerminal(summary);
     console.log(terminalReport);

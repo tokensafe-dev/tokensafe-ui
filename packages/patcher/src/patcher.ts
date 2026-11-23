@@ -37,11 +37,33 @@ export interface BindEventPatch {
   actionName: string; // e.g. "reset" -> binds {emit.reset}
 }
 
+export interface ReplaceActionPatch {
+  op: 'replace_action';
+  componentId: string;
+  name: string;
+  code: string; // e.g. "(s) => ({ ...s, count: s.count * 2 })"
+}
+
+export interface PatchRenderPatch {
+  op: 'patch_render';
+  componentId: string;
+  renderCode: string; // e.g. "({ state, emit }) => h('div', null, state.count)"
+}
+
+export interface RemoveActionPatch {
+  op: 'remove_action';
+  componentId: string;
+  name: string;
+}
+
 export type ComponentPatch =
   | AddActionPatch
   | UpdateStatePatch
   | InsertJsxPatch
-  | BindEventPatch;
+  | BindEventPatch
+  | ReplaceActionPatch
+  | PatchRenderPatch
+  | RemoveActionPatch;
 
 export interface PatchResult {
   success: boolean;
@@ -76,6 +98,23 @@ export function applyPatch(sourceCode: string, patch: ComponentPatch): PatchResu
       }
       case 'bind_event': {
         patched = handleBindEvent(ast, patch);
+        break;
+      }
+      case 'replace_action': {
+        patched = handleAddAction(ast, {
+          op: 'add_action',
+          componentId: patch.componentId,
+          name: patch.name,
+          code: patch.code,
+        });
+        break;
+      }
+      case 'patch_render': {
+        patched = handlePatchRender(ast, patch);
+        break;
+      }
+      case 'remove_action': {
+        patched = handleRemoveAction(ast, patch);
         break;
       }
     }
@@ -138,6 +177,74 @@ function handleAddAction(ast: t.File, patch: AddActionPatch): boolean {
         );
         matched = true;
         path.stop();
+      }
+    },
+  });
+
+  return matched;
+}
+
+function handlePatchRender(ast: t.File, patch: PatchRenderPatch): boolean {
+  let matched = false;
+
+  traverse(ast, {
+    CallExpression(path: any) {
+      if (!isDefineComponentCall(path, patch.componentId)) return;
+
+      const configArg = path.node.arguments[0];
+      if (!t.isObjectExpression(configArg)) return;
+
+      const renderProp = configArg.properties.find(
+        (p): p is t.ObjectProperty =>
+          t.isObjectProperty(p) &&
+          t.isIdentifier(p.key) &&
+          p.key.name === 'render'
+      );
+
+      const expr = parseExpression(patch.renderCode);
+      if (renderProp) {
+        renderProp.value = expr;
+        matched = true;
+        path.stop();
+      } else {
+        configArg.properties.push(
+          t.objectProperty(t.identifier('render'), expr)
+        );
+        matched = true;
+        path.stop();
+      }
+    },
+  });
+
+  return matched;
+}
+
+function handleRemoveAction(ast: t.File, patch: RemoveActionPatch): boolean {
+  let matched = false;
+
+  traverse(ast, {
+    CallExpression(path: any) {
+      if (!isDefineComponentCall(path, patch.componentId)) return;
+
+      const configArg = path.node.arguments[0];
+      if (!t.isObjectExpression(configArg)) return;
+
+      const actionsProp = configArg.properties.find(
+        (p): p is t.ObjectProperty =>
+          t.isObjectProperty(p) &&
+          t.isIdentifier(p.key) &&
+          p.key.name === 'actions'
+      );
+
+      if (actionsProp && t.isObjectExpression(actionsProp.value)) {
+        const initialLen = actionsProp.value.properties.length;
+        actionsProp.value.properties = actionsProp.value.properties.filter(
+          (p) => !(t.isObjectProperty(p) && t.isIdentifier(p.key) && p.key.name === patch.name)
+        );
+        if (actionsProp.value.properties.length < initialLen) {
+          matched = true;
+          path.stop();
+        }
       }
     },
   });
