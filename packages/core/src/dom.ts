@@ -1,6 +1,12 @@
 import type { AgentVNode, AgentChild, ComponentInstance } from './types.js';
 import { effect, signal, Signal, createScope, ReactiveScope, untrack } from './signals.js';
 import { Show, For, ErrorBoundary } from './control.js';
+import {
+  createHookContext,
+  setCurrentHookContext,
+  flushComponentEffects,
+  disposeComponentEffects,
+} from './hooks.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const SVG_TAGS = new Set([
@@ -616,6 +622,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
     let currentNodes: Node[] = [];
     let currentScope: ReactiveScope | null = null;
     let isInitial = true;
+    const hookCtx = createHookContext();
 
     const stop = effect(() => {
       if (currentScope) {
@@ -623,13 +630,21 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
         currentScope = null;
       }
 
+      hookCtx.hookIndex = 0;
+      hookCtx.effectIndex = 0;
+      setCurrentHookContext(hookCtx);
+
       // Execute component within a reactive scope
       const { result: rawChild, scope: compScope } = createScope(() => {
-        let res = targetType(vnode.props);
-        if (typeof res === 'function') {
-          res = res();
+        try {
+          let res = targetType(vnode.props);
+          if (typeof res === 'function') {
+            res = res();
+          }
+          return res;
+        } finally {
+          setCurrentHookContext(null);
         }
-        return res;
       });
       currentScope = compScope;
 
@@ -670,10 +685,20 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
           parent.insertBefore(rendered, endAnchor);
         }
       }
+
+      // Flush hooks effects after DOM insertion
+      flushComponentEffects(hookCtx);
     }, {
       name: `component:${compName}`,
       kind: 'dom_binding',
     });
+
+    if (instance && (instance as any)._cleanups) {
+      (instance as any)._cleanups.add(() => {
+        stop();
+        disposeComponentEffects(hookCtx);
+      });
+    }
 
     if (instance && (instance as any)._cleanups) {
       (instance as any)._cleanups.add(stop);
