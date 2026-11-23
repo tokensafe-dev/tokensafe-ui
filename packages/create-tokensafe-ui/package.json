@@ -1,6 +1,6 @@
 {
   "name": "create-tokensafe-ui",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Scaffolding CLI for creating TokenSafe UI projects with OUMV Protocol support",
   "type": "module",
   "bin": {

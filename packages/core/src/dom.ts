@@ -312,6 +312,40 @@ function hydrateNode(
   }
 }
 
+let idSeq = 0;
+const fallbackDispatcher: any = {
+  readContext: (ctx: any) => ctx?._currentValue,
+  useCallback: (fn: any) => fn,
+  useContext: (ctx: any) => ctx?._currentValue,
+  useEffect: () => {},
+  useImperativeHandle: () => {},
+  useInsertionEffect: () => {},
+  useLayoutEffect: () => {},
+  useMemo: (fn: any) => fn(),
+  useReducer: (_: any, init: any) => [init, () => {}],
+  useRef: (init: any) => ({ current: init }),
+  useState: (init: any) => [typeof init === 'function' ? init() : init, () => {}],
+  useDebugValue: () => {},
+  useDeferredValue: (v: any) => v,
+  useTransition: () => [false, (fn: any) => fn()],
+  useId: () => `:r${++idSeq}:`,
+};
+
+function ensureReactDispatcher(): void {
+  try {
+    const React = (globalThis as any).React || (typeof window !== 'undefined' && (window as any).React);
+    if (!React) return;
+    const clientInternals = (React as any).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    if (clientInternals && !clientInternals.H) {
+      clientInternals.H = fallbackDispatcher;
+    }
+    const secretInternals = (React as any).__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+    if (secretInternals?.ReactCurrentDispatcher && !secretInternals.ReactCurrentDispatcher.current) {
+      secretInternals.ReactCurrentDispatcher.current = fallbackDispatcher;
+    }
+  } catch {}
+}
+
 function convertReactNode(rn: any): any {
   if (!rn || typeof rn !== 'object') return rn;
   if (Array.isArray(rn)) return rn.map(convertReactNode);
@@ -392,6 +426,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
       targetType = targetType.type;
     }
     if (typeof targetType.render === 'function') {
+      ensureReactDispatcher();
       const rendered = targetType.render(vnode.props, vnode.props?.ref || null);
       return renderVNode(convertReactNode(rendered), instance);
     }
@@ -794,6 +829,7 @@ function vnodeToString(node: AgentChild): string {
       targetType = targetType.type;
     }
     if (typeof targetType.render === 'function') {
+      ensureReactDispatcher();
       const rendered = targetType.render(vnode.props, vnode.props?.ref || null);
       return vnodeToString(convertReactNode(rendered));
     }

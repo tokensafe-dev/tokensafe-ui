@@ -37,4 +37,40 @@ describe('agent-dom core smoke test', () => {
     expect(container.querySelector('.container')).not.toBeNull();
     expect(container.querySelector('.child')?.textContent).toBe('Hello from React JSX!');
   });
+
+  it('renders forwardRef components that call useId without throwing', () => {
+    // Mock global React with internals
+    let hookId = '';
+    const mockReact: any = {
+      __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: {},
+    };
+    (globalThis as any).React = mockReact;
+
+    const ForwardRefComponent = {
+      $$typeof: Symbol.for('react.forward_ref'),
+      render: (props: any) => {
+        const id = mockReact.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.H.useId();
+        hookId = id;
+        return {
+          $$typeof: Symbol.for('react.element'),
+          type: 'svg',
+          props: {
+            id,
+            className: props.className,
+          },
+        };
+      },
+    };
+
+    const vnode = {
+      type: ForwardRefComponent,
+      props: { className: 'icon-test' },
+      children: [],
+    };
+
+    const container = document.createElement('div');
+    mount(vnode as any, container);
+    expect(hookId).toMatch(/:r\d+:/);
+    expect(container.querySelector('svg')?.getAttribute('class')).toBe('icon-test');
+  });
 });
