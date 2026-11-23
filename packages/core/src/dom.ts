@@ -595,11 +595,81 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
       }
     }
 
-    let childVNode = targetType(vnode.props);
-    if (typeof childVNode === 'function') {
-      childVNode = childVNode();
+    // 4. Reactive Functional Component
+    const container = document.createDocumentFragment();
+    const compName = targetType.name || 'Component';
+    const startAnchor = document.createComment(`agent-dom:${compName}-start`);
+    const endAnchor = document.createComment(`agent-dom:${compName}-end`);
+    container.appendChild(startAnchor);
+    container.appendChild(endAnchor);
+
+    let currentNodes: Node[] = [];
+    let currentScope: ReactiveScope | null = null;
+    let isInitial = true;
+
+    const stop = effect(() => {
+      if (currentScope) {
+        currentScope.dispose();
+        currentScope = null;
+      }
+
+      // Execute component within a reactive scope
+      const { result: rawChild, scope: compScope } = createScope(() => {
+        let res = targetType(vnode.props);
+        if (typeof res === 'function') {
+          res = res();
+        }
+        return res;
+      });
+      currentScope = compScope;
+
+      let rendered: Node | null = null;
+      if (rawChild !== null && rawChild !== undefined && typeof rawChild !== 'boolean') {
+        rendered = untrack(() => renderVNode(rawChild, instance));
+      }
+
+      if (isInitial) {
+        if (rendered) {
+          if (rendered instanceof DocumentFragment) {
+            currentNodes = Array.from(rendered.childNodes);
+          } else {
+            currentNodes = [rendered];
+          }
+          container.insertBefore(rendered, endAnchor);
+        } else {
+          currentNodes = [];
+        }
+        isInitial = false;
+      } else {
+        const parent = endAnchor.parentNode;
+        if (!parent) return;
+
+        for (const n of currentNodes) {
+          if (n.parentNode === parent) {
+            parent.removeChild(n);
+          }
+        }
+        currentNodes = [];
+
+        if (rendered) {
+          if (rendered instanceof DocumentFragment) {
+            currentNodes = Array.from(rendered.childNodes);
+          } else {
+            currentNodes = [rendered];
+          }
+          parent.insertBefore(rendered, endAnchor);
+        }
+      }
+    }, {
+      name: `component:${compName}`,
+      kind: 'dom_binding',
+    });
+
+    if (instance && (instance as any)._cleanups) {
+      (instance as any)._cleanups.add(stop);
     }
-    return renderVNode(childVNode, instance);
+
+    return container;
   }
 
   // Create native HTML or SVG Element
