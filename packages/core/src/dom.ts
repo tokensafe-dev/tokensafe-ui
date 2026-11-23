@@ -2,8 +2,15 @@ import type { AgentVNode, AgentChild, ComponentInstance } from './types.js';
 import { effect, signal, Signal, createScope, ReactiveScope, untrack } from './signals.js';
 import { Show, For, ErrorBoundary } from './control.js';
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const SVG_TAGS = new Set([
+  'svg', 'path', 'circle', 'rect', 'line', 'polygon', 'polyline',
+  'ellipse', 'g', 'defs', 'clipPath', 'mask', 'pattern', 'text',
+  'tspan', 'use', 'image', 'symbol', 'linearGradient', 'radialGradient', 'stop'
+]);
+
 export function h(
-  type: string | ((props: any) => AgentVNode),
+  type: any,
   props: Record<string, any> | null,
   ...children: any[]
 ): AgentVNode {
@@ -29,7 +36,7 @@ export function Fragment(props: any): any {
 }
 
 export function mount(
-  instance: ComponentInstance<any, any, any>,
+  instanceOrVNode: ComponentInstance<any, any, any> | AgentChild,
   container?: HTMLElement
 ): HTMLElement {
   const targetContainer = container || document.createElement('div');
@@ -39,44 +46,56 @@ export function mount(
     prevInstance.unmount();
   }
 
-  const root = instance.scope
-    ? instance.scope.run(() => renderVNode(instance.vnode, instance))
-    : renderVNode(instance.vnode, instance);
+  let root: Node;
+  let instance: any = null;
+
+  if (instanceOrVNode && typeof instanceOrVNode === 'object' && 'vnode' in (instanceOrVNode as any)) {
+    instance = instanceOrVNode as ComponentInstance<any, any, any>;
+    root = instance.scope
+      ? instance.scope.run(() => renderVNode(instance.vnode, instance))
+      : renderVNode(instance.vnode, instance);
+    instance.isMounted = true;
+    (targetContainer as any).__tokensafe_instance__ = instance;
+  } else {
+    root = renderVNode(instanceOrVNode as any);
+  }
+
   targetContainer.innerHTML = '';
   targetContainer.appendChild(root);
 
-  instance.isMounted = true;
-  (targetContainer as any).__tokensafe_instance__ = instance;
-
-  if (root instanceof HTMLElement) {
-    instance.rootElement = root;
-  } else {
-    const wrapper = document.createElement('div');
-    wrapper.appendChild(root);
-    instance.rootElement = wrapper;
-  }
-
-  // Execute onMount lifecycle hook if provided
-  if (typeof instance.config.onMount === 'function') {
-    try {
-      const mountCleanup = instance.config.onMount({
-        state: instance.state,
-        emit: instance.emit,
-        dispatch: instance.dispatch,
-      });
-      if (typeof mountCleanup === 'function') {
-        (instance as any)._cleanups?.add(mountCleanup);
-      }
-    } catch (err: any) {
-      instance.runtimeLog.push({
-        timestamp: Date.now(),
-        type: 'error',
-        error: `onMount hook error: ${err.message}`,
-      });
+  if (instance) {
+    if (root instanceof HTMLElement) {
+      instance.rootElement = root;
+    } else {
+      const wrapper = document.createElement('div');
+      wrapper.appendChild(root);
+      instance.rootElement = wrapper;
     }
+
+    // Execute onMount lifecycle hook if provided
+    if (typeof instance.config?.onMount === 'function') {
+      try {
+        const mountCleanup = instance.config.onMount({
+          state: instance.state,
+          emit: instance.emit,
+          dispatch: instance.dispatch,
+        });
+        if (typeof mountCleanup === 'function') {
+          (instance as any)._cleanups?.add(mountCleanup);
+        }
+      } catch (err: any) {
+        instance.runtimeLog?.push({
+          timestamp: Date.now(),
+          type: 'error',
+          error: `onMount hook error: ${err.message}`,
+        });
+      }
+    }
+
+    return instance.rootElement;
   }
 
-  return instance.rootElement;
+  return root instanceof HTMLElement ? root : targetContainer;
 }
 
 export function unmount(target: ComponentInstance<any, any, any> | HTMLElement): void {
@@ -287,7 +306,34 @@ function hydrateNode(
   }
 }
 
-function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any>): Node {
+function convertReactNode(rn: any): any {
+  if (!rn || typeof rn !== 'object') return rn;
+  if (Array.isArray(rn)) return rn.map(convertReactNode);
+  if ('props' in rn && 'type' in rn) {
+    const props = { ...(rn.props || {}) };
+    const rawChildren = props.children;
+    delete props.children;
+    let children: any[] = [];
+    if (Array.isArray(rawChildren)) {
+      children = rawChildren.flat().filter((c: any) => c !== null && c !== undefined).map(convertReactNode);
+    } else if (rawChildren !== null && rawChildren !== undefined) {
+      children = [convertReactNode(rawChildren)];
+    }
+    return {
+      type: rn.type,
+      props,
+      children,
+      agentId: props['data-agent-id'],
+    };
+  }
+  return rn;
+}
+
+function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, any>): Node {
+  if (typeof node === 'function') {
+    return renderVNode((node as any)(), instance);
+  }
+
   if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
     return document.createTextNode(String(node));
   }
@@ -330,8 +376,19 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     return root;
   }
 
-  if (typeof node.type === 'function') {
-    if (node.type === Fragment) {
+  let targetType = node.type;
+  if (typeof targetType === 'object' && targetType !== null) {
+    if ((targetType as any).$$typeof && (targetType as any).type) {
+      targetType = (targetType as any).type;
+    }
+    if (typeof (targetType as any).render === 'function') {
+      const rendered = (targetType as any).render(node.props, (node.props as any)?.ref || null);
+      return renderVNode(convertReactNode(rendered), instance);
+    }
+  }
+
+  if (typeof targetType === 'function') {
+    if (targetType === Fragment) {
       const fragment = document.createDocumentFragment();
       for (const child of node.children) {
         fragment.appendChild(renderVNode(child, instance));
@@ -340,7 +397,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     }
 
     // 1. Show Component
-    if (node.type === Show) {
+    if (targetType === Show) {
       const container = document.createDocumentFragment();
       const startAnchor = document.createComment('agent-dom:show-start');
       const endAnchor = document.createComment('agent-dom:show-end');
@@ -391,7 +448,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
           }
         }
       }, {
-        name: `control:show:${instance.id}`,
+        name: `control:show:${instance?.id || 'root'}`,
         kind: 'dom_binding',
       });
 
@@ -463,7 +520,7 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
 
         currentMap = newMap;
       }, {
-        name: `control:for:${instance.id}`,
+        name: `control:for:${instance?.id || 'root'}`,
         kind: 'dom_binding',
       });
 
@@ -471,26 +528,35 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
     }
 
     // 3. Error Boundary Component
-    if (node.type === ErrorBoundary) {
+    if (targetType === ErrorBoundary) {
       try {
         return renderVNode(node.props.children, instance);
       } catch (err: any) {
-        instance.runtimeLog.push({
-          timestamp: Date.now(),
-          type: 'error',
-          error: `ErrorBoundary: ${err.message}`,
-        });
+        if (instance?.runtimeLog) {
+          instance.runtimeLog.push({
+            timestamp: Date.now(),
+            type: 'error',
+            error: `ErrorBoundary: ${err.message}`,
+          });
+        }
         return renderVNode(node.props.fallback(err), instance);
       }
     }
 
-    const childVNode = node.type(node.props);
+    let childVNode = targetType(node.props);
+    if (typeof childVNode === 'function') {
+      childVNode = childVNode();
+    }
     return renderVNode(childVNode, instance);
   }
 
-  // Create native HTML Element
-  const el = document.createElement(node.type);
-  const cleanups = (instance as any)._cleanups;
+  // Create native HTML or SVG Element
+  const tagName = typeof node.type === 'string' ? node.type : String(node.type);
+  const isSvg = SVG_TAGS.has(tagName.toLowerCase());
+  const el = isSvg
+    ? document.createElementNS(SVG_NS, tagName)
+    : document.createElement(tagName);
+  const cleanups = (instance as any)?._cleanups;
 
   // Set props and reactive bindings
   for (const [key, value] of Object.entries(node.props)) {
@@ -535,14 +601,14 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
       if (typeof value === 'function') {
         const agentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
         const stop = effect(() => {
-          el.className = String(value());
+          el.setAttribute('class', String(value()));
         }, {
           name: `dom:${agentId}.class`,
           kind: 'dom_binding',
         });
         if (cleanups) cleanups.add(stop);
       } else {
-        el.className = String(value);
+        el.setAttribute('class', String(value));
       }
     } else if (key === 'style') {
       if (typeof value === 'function') {
@@ -659,18 +725,22 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
   return el;
 }
 
-export function renderToString(instance: ComponentInstance<any, any, any>): string {
-  const html = vnodeToString(instance.vnode);
-  const stateSnapshot: Record<string, any> = {};
-  for (const [k, sig] of Object.entries(instance.signals)) {
-    stateSnapshot[k] = sig.peek();
+export function renderToString(instanceOrVNode: ComponentInstance<any, any, any> | AgentChild): string {
+  if (instanceOrVNode && typeof instanceOrVNode === 'object' && 'vnode' in (instanceOrVNode as any)) {
+    const instance = instanceOrVNode as ComponentInstance<any, any, any>;
+    const html = vnodeToString(instance.vnode);
+    const stateSnapshot: Record<string, any> = {};
+    for (const [k, sig] of Object.entries(instance.signals)) {
+      stateSnapshot[k] = sig.peek();
+    }
+
+    const stateScript = `<script id="__TOKENSAFE_UI_STATE__" type="application/json">${JSON.stringify({
+      [instance.id]: stateSnapshot,
+    })}</script>`;
+
+    return `${html}\n${stateScript}`;
   }
-
-  const stateScript = `<script id="__TOKENSAFE_UI_STATE__" type="application/json">${JSON.stringify({
-    [instance.id]: stateSnapshot,
-  })}</script>`;
-
-  return `${html}\n${stateScript}`;
+  return vnodeToString(instanceOrVNode as any);
 }
 
 function vnodeToString(node: AgentChild): string {
@@ -694,11 +764,23 @@ function vnodeToString(node: AgentChild): string {
   if (Array.isArray(node)) {
     return node.map(vnodeToString).join('');
   }
-  if (typeof node.type === 'function') {
-    if (node.type === Fragment) {
+
+  let targetType = node.type;
+  if (typeof targetType === 'object' && targetType !== null) {
+    if ((targetType as any).$$typeof && (targetType as any).type) {
+      targetType = (targetType as any).type;
+    }
+    if (typeof (targetType as any).render === 'function') {
+      const rendered = (targetType as any).render(node.props, (node.props as any)?.ref || null);
+      return vnodeToString(convertReactNode(rendered));
+    }
+  }
+
+  if (typeof targetType === 'function') {
+    if (targetType === Fragment) {
       return (node.children || []).map(vnodeToString).join('');
     }
-    if (node.type === Show) {
+    if (targetType === Show) {
       const whenVal =
         typeof node.props.when === 'function' ? node.props.when() : node.props.when;
       const branch = whenVal
@@ -708,7 +790,7 @@ function vnodeToString(node: AgentChild): string {
         : node.props.fallback;
       return branch ? vnodeToString(branch) : '';
     }
-    if (node.type === For) {
+    if (targetType === For) {
       const rawItems =
         typeof node.props.each === 'function'
           ? node.props.each()
@@ -719,14 +801,14 @@ function vnodeToString(node: AgentChild): string {
         return vnodeToString(childNode);
       }).join('');
     }
-    if (node.type === ErrorBoundary) {
+    if (targetType === ErrorBoundary) {
       try {
         return vnodeToString(node.props.children);
       } catch (err: any) {
         return vnodeToString(node.props.fallback(err));
       }
     }
-    return vnodeToString(node.type(node.props));
+    return vnodeToString(targetType(node.props));
   }
 
   const attrs: string[] = [];

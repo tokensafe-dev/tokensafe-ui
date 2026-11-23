@@ -12,7 +12,8 @@ export async function ensureHeadlessDom(): Promise<void> {
 
   if (typeof document === 'undefined') {
     try {
-      const { Window } = await import('happy-dom');
+      const happyDomModule = 'happy-dom';
+      const { Window } = await import(/* @vite-ignore */ happyDomModule);
       const win = new Window();
       (globalThis as any).window = win;
       (globalThis as any).document = win.document;
