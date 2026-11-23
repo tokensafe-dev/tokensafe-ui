@@ -655,7 +655,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
 
       if (isInitial) {
         if (rendered) {
-          if (rendered instanceof DocumentFragment) {
+          if (rendered.nodeType === 11) {
             currentNodes = Array.from(rendered.childNodes);
           } else {
             currentNodes = [rendered];
@@ -677,7 +677,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
         currentNodes = [];
 
         if (rendered) {
-          if (rendered instanceof DocumentFragment) {
+          if (rendered.nodeType === 11) {
             currentNodes = Array.from(rendered.childNodes);
           } else {
             currentNodes = [rendered];
