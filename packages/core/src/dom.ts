@@ -15,11 +15,17 @@ export function h(
   ...children: any[]
 ): AgentVNode {
   const normalizedProps = props || {};
-  const flatChildren: AgentChild[] = children
+  let flatChildren: AgentChild[] = children
     .flat()
     .filter((c) => c !== null && c !== undefined);
 
-  if (flatChildren.length > 0 && !normalizedProps.children) {
+  if (flatChildren.length === 0 && normalizedProps.children) {
+    if (Array.isArray(normalizedProps.children)) {
+      flatChildren = normalizedProps.children.flat().filter((c: any) => c !== null && c !== undefined);
+    } else {
+      flatChildren = [normalizedProps.children];
+    }
+  } else if (flatChildren.length > 0 && !normalizedProps.children) {
     normalizedProps.children = flatChildren.length === 1 ? flatChildren[0] : flatChildren;
   }
 
@@ -312,7 +318,6 @@ function convertReactNode(rn: any): any {
   if ('props' in rn && 'type' in rn) {
     const props = { ...(rn.props || {}) };
     const rawChildren = props.children;
-    delete props.children;
     let children: any[] = [];
     if (Array.isArray(rawChildren)) {
       children = rawChildren.flat().filter((c: any) => c !== null && c !== undefined).map(convertReactNode);
@@ -376,21 +381,33 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
     return root;
   }
 
-  let targetType = node.type;
+  let vnode: any = node;
+  if ('props' in vnode && (!('children' in vnode) || !Array.isArray(vnode.children) || '$$typeof' in vnode)) {
+    vnode = convertReactNode(vnode);
+  }
+
+  let targetType = vnode.type;
   if (typeof targetType === 'object' && targetType !== null) {
-    if ((targetType as any).$$typeof && (targetType as any).type) {
-      targetType = (targetType as any).type;
+    if (targetType.$$typeof && targetType.type) {
+      targetType = targetType.type;
     }
-    if (typeof (targetType as any).render === 'function') {
-      const rendered = (targetType as any).render(node.props, (node.props as any)?.ref || null);
+    if (typeof targetType.render === 'function') {
+      const rendered = targetType.render(vnode.props, vnode.props?.ref || null);
       return renderVNode(convertReactNode(rendered), instance);
     }
   }
 
+  const rawChildren = vnode.children ?? vnode.props?.children;
+  const childrenList: any[] = Array.isArray(rawChildren)
+    ? rawChildren
+    : rawChildren !== null && rawChildren !== undefined
+    ? [rawChildren]
+    : [];
+
   if (typeof targetType === 'function') {
     if (targetType === Fragment) {
       const fragment = document.createDocumentFragment();
-      for (const child of node.children) {
+      for (const child of childrenList) {
         fragment.appendChild(renderVNode(child, instance));
       }
       return fragment;
@@ -409,7 +426,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
 
       effect(() => {
         const whenVal =
-          typeof node.props.when === 'function' ? node.props.when() : node.props.when;
+          typeof vnode.props.when === 'function' ? vnode.props.when() : vnode.props.when;
 
         if (currentScope) {
           currentScope.dispose();
@@ -424,9 +441,9 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
         if (whenVal) {
           const { result: rendered, scope: branchScope } = createScope(() => {
             const branch = untrack(() =>
-              typeof node.props.children === 'function'
-                ? node.props.children(whenVal)
-                : node.props.children
+              typeof vnode.props.children === 'function'
+                ? vnode.props.children(whenVal)
+                : vnode.props.children
             );
             return untrack(() => (branch ? renderVNode(branch, instance) : null));
           });
@@ -436,9 +453,9 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
             parent.insertBefore(rendered, endAnchor);
             currentNodes.push(rendered);
           }
-        } else if (node.props.fallback) {
+        } else if (vnode.props.fallback) {
           const { result: rendered, scope: branchScope } = createScope(() => {
-            return untrack(() => renderVNode(node.props.fallback, instance));
+            return untrack(() => renderVNode(vnode.props.fallback, instance));
           });
           currentScope = branchScope;
           if (rendered) {
@@ -456,7 +473,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
     }
 
     // 2. For Component
-    if (node.type === For) {
+    if (vnode.type === For) {
       const container = document.createDocumentFragment();
       const startAnchor = document.createComment('agent-dom:for-start');
       const endAnchor = document.createComment('agent-dom:for-end');
@@ -473,19 +490,19 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
 
       effect(() => {
         const rawItems =
-          typeof node.props.each === 'function'
-            ? node.props.each()
-            : node.props.each || [];
+          typeof vnode.props.each === 'function'
+            ? vnode.props.each()
+            : vnode.props.each || [];
         const items = Array.isArray(rawItems) ? rawItems : [];
         const newMap = new Map<any, KeyItem>();
         const parent = endAnchor.parentNode || container;
 
         items.forEach((item: any, idx: number) => {
           let itemKey: any;
-          if (typeof node.props.key === 'function') {
-            itemKey = node.props.key(item, idx);
-          } else if (node.props.key && typeof item === 'object') {
-            itemKey = item[node.props.key];
+          if (typeof vnode.props.key === 'function') {
+            itemKey = vnode.props.key(item, idx);
+          } else if (vnode.props.key && typeof item === 'object') {
+            itemKey = item[vnode.props.key];
           } else {
             itemKey = item?.id ?? item?.key ?? (typeof item === 'string' ? item : idx);
           }
@@ -499,7 +516,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
           } else {
             const indexSignal = signal(idx);
             const { result: rendered, scope: itemScope } = createScope(() => {
-              const childVNode = untrack(() => node.props.children(item, () => indexSignal.value));
+              const childVNode = untrack(() => vnode.props.children(item, () => indexSignal.value));
               return untrack(() => renderVNode(childVNode, instance));
             });
             existing = { key: itemKey, node: rendered, indexSignal, scope: itemScope };
@@ -530,7 +547,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
     // 3. Error Boundary Component
     if (targetType === ErrorBoundary) {
       try {
-        return renderVNode(node.props.children, instance);
+        return renderVNode(vnode.props.children, instance);
       } catch (err: any) {
         if (instance?.runtimeLog) {
           instance.runtimeLog.push({
@@ -539,11 +556,11 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
             error: `ErrorBoundary: ${err.message}`,
           });
         }
-        return renderVNode(node.props.fallback(err), instance);
+        return renderVNode(vnode.props.fallback(err), instance);
       }
     }
 
-    let childVNode = targetType(node.props);
+    let childVNode = targetType(vnode.props);
     if (typeof childVNode === 'function') {
       childVNode = childVNode();
     }
@@ -551,7 +568,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
   }
 
   // Create native HTML or SVG Element
-  const tagName = typeof node.type === 'string' ? node.type : String(node.type);
+  const tagName = typeof vnode.type === 'string' ? vnode.type : String(vnode.type);
   const isSvg = SVG_TAGS.has(tagName.toLowerCase());
   const el = isSvg
     ? document.createElementNS(SVG_NS, tagName)
@@ -559,7 +576,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
   const cleanups = (instance as any)?._cleanups;
 
   // Set props and reactive bindings
-  for (const [key, value] of Object.entries(node.props)) {
+  for (const [key, value] of Object.entries(vnode.props || {})) {
     if (key === 'children') continue;
 
     if (key === 'ref') {
@@ -594,7 +611,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
     if (key.startsWith('on') && typeof value === 'function') {
       const eventName = key.slice(2).toLowerCase();
       el.addEventListener(eventName, value);
-      if ((value as any)?._actionName && !node.props['data-agent-action']) {
+      if ((value as any)?._actionName && !vnode.props['data-agent-action']) {
         el.setAttribute('data-agent-action', (value as any)._actionName);
       }
     } else if (key === 'class' || key === 'className') {
@@ -651,7 +668,7 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
   }
 
   // Render children
-  for (const child of node.children) {
+  for (const child of childrenList) {
     if (typeof child === 'function') {
       const parentAgentId = el.getAttribute('data-agent-id') || el.tagName.toLowerCase();
       // Use dynamic anchors for reactive child rendering
@@ -765,54 +782,67 @@ function vnodeToString(node: AgentChild): string {
     return node.map(vnodeToString).join('');
   }
 
-  let targetType = node.type;
+  // Convert React elements or objects without an array .children
+  let vnode: any = node;
+  if ('props' in vnode && (!('children' in vnode) || !Array.isArray(vnode.children) || '$$typeof' in vnode)) {
+    vnode = convertReactNode(vnode);
+  }
+
+  let targetType = vnode.type;
   if (typeof targetType === 'object' && targetType !== null) {
-    if ((targetType as any).$$typeof && (targetType as any).type) {
-      targetType = (targetType as any).type;
+    if (targetType.$$typeof && targetType.type) {
+      targetType = targetType.type;
     }
-    if (typeof (targetType as any).render === 'function') {
-      const rendered = (targetType as any).render(node.props, (node.props as any)?.ref || null);
+    if (typeof targetType.render === 'function') {
+      const rendered = targetType.render(vnode.props, vnode.props?.ref || null);
       return vnodeToString(convertReactNode(rendered));
     }
   }
 
+  const rawChildren = vnode.children ?? vnode.props?.children;
+  const childrenList: any[] = Array.isArray(rawChildren)
+    ? rawChildren
+    : rawChildren !== null && rawChildren !== undefined
+    ? [rawChildren]
+    : [];
+
   if (typeof targetType === 'function') {
     if (targetType === Fragment) {
-      return (node.children || []).map(vnodeToString).join('');
+      return childrenList.map(vnodeToString).join('');
     }
     if (targetType === Show) {
       const whenVal =
-        typeof node.props.when === 'function' ? node.props.when() : node.props.when;
+        typeof vnode.props.when === 'function' ? vnode.props.when() : vnode.props.when;
       const branch = whenVal
-        ? typeof node.props.children === 'function'
-          ? node.props.children(whenVal)
-          : node.props.children
-        : node.props.fallback;
+        ? typeof vnode.props.children === 'function'
+          ? vnode.props.children(whenVal)
+          : vnode.props.children
+        : vnode.props.fallback;
       return branch ? vnodeToString(branch) : '';
     }
     if (targetType === For) {
       const rawItems =
-        typeof node.props.each === 'function'
-          ? node.props.each()
-          : node.props.each || [];
+        typeof vnode.props.each === 'function'
+          ? vnode.props.each()
+          : vnode.props.each || [];
       const items = Array.isArray(rawItems) ? rawItems : [];
       return items.map((item: any, idx: number) => {
-        const childNode = node.props.children(item, () => idx);
+        const childNode = vnode.props.children(item, () => idx);
         return vnodeToString(childNode);
       }).join('');
     }
     if (targetType === ErrorBoundary) {
       try {
-        return vnodeToString(node.props.children);
+        return vnodeToString(vnode.props.children);
       } catch (err: any) {
-        return vnodeToString(node.props.fallback(err));
+        return vnodeToString(vnode.props.fallback(err));
       }
     }
-    return vnodeToString(targetType(node.props));
+    return vnodeToString(targetType(vnode.props));
   }
 
   const attrs: string[] = [];
-  for (let [key, value] of Object.entries(node.props)) {
+  for (let [key, value] of Object.entries(vnode.props || {})) {
     if (key === 'children' || key.startsWith('on')) continue;
     if (typeof value === 'function') {
       try {
@@ -831,16 +861,16 @@ function vnodeToString(node: AgentChild): string {
   }
 
   const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
-  if (node.props?.dangerouslySetInnerHTML?.__html) {
-    return `<${node.type}${attrStr}>${node.props.dangerouslySetInnerHTML.__html}</${node.type}>`;
+  if (vnode.props?.dangerouslySetInnerHTML?.__html) {
+    return `<${vnode.type}${attrStr}>${vnode.props.dangerouslySetInnerHTML.__html}</${vnode.type}>`;
   }
-  if (node.props?.innerHTML) {
-    const raw = typeof node.props.innerHTML === 'function' ? node.props.innerHTML() : node.props.innerHTML;
-    return `<${node.type}${attrStr}>${raw}</${node.type}>`;
+  if (vnode.props?.innerHTML) {
+    const raw = typeof vnode.props.innerHTML === 'function' ? vnode.props.innerHTML() : vnode.props.innerHTML;
+    return `<${vnode.type}${attrStr}>${raw}</${vnode.type}>`;
   }
-  const childrenStr = node.children.map(vnodeToString).join('');
+  const childrenStr = childrenList.map(vnodeToString).join('');
 
-  return `<${node.type}${attrStr}>${childrenStr}</${node.type}>`;
+  return `<${vnode.type}${attrStr}>${childrenStr}</${vnode.type}>`;
 }
 
 function escapeHtml(str: string): string {
