@@ -9,6 +9,7 @@ export default defineConfig({
     'src/testing.ts',
     'src/vite.ts',
     'src/mcp.ts',
+    'src/cli.ts',
   ],
   format: ['cjs', 'esm'],
   dts: true,

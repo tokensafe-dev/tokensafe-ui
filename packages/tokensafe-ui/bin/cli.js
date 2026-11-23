@@ -50,8 +50,17 @@ export const ${name} = defineAsyncCrudComponent({
 
   fs.writeFileSync(targetPath, template, 'utf-8');
   console.log(`✓ Created contract component: ${fileName}`);
-} else if (command === 'mcp' || !command) {
-  import('./mcp.js');
 } else {
-  console.log(`TokenSafe UI CLI\nUsage:\n  tokensafe-ui mcp\n  tokensafe-ui create-contract [Entity] [Name]\n`);
+  // Delegate to zero-config CLI runner
+  try {
+    const { runCli } = await import('../dist/cli.js');
+    await runCli(process.argv);
+  } catch (err) {
+    if (command === 'mcp' || !command) {
+      import('./mcp.js');
+    } else {
+      console.error(err);
+      process.exit(1);
+    }
+  }
 }
