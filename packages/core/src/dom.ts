@@ -24,6 +24,10 @@ export function h(
   };
 }
 
+export function Fragment(props: any): any {
+  return props?.children || [];
+}
+
 export function mount(
   instance: ComponentInstance<any, any, any>,
   container?: HTMLElement
@@ -327,6 +331,14 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
   }
 
   if (typeof node.type === 'function') {
+    if (node.type === Fragment) {
+      const fragment = document.createDocumentFragment();
+      for (const child of node.children) {
+        fragment.appendChild(renderVNode(child, instance));
+      }
+      return fragment;
+    }
+
     // 1. Show Component
     if (node.type === Show) {
       const container = document.createDocumentFragment();
@@ -484,6 +496,35 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
   for (const [key, value] of Object.entries(node.props)) {
     if (key === 'children') continue;
 
+    if (key === 'ref') {
+      if (typeof value === 'function') {
+        value(el);
+      } else if (value && typeof value === 'object' && 'current' in value) {
+        value.current = el;
+      }
+      continue;
+    }
+
+    if (key === 'dangerouslySetInnerHTML' && value && typeof value === 'object' && '__html' in value) {
+      el.innerHTML = String(value.__html);
+      continue;
+    }
+
+    if (key === 'innerHTML') {
+      if (typeof value === 'function') {
+        const stop = effect(() => {
+          el.innerHTML = String(value());
+        }, {
+          name: `dom:${el.tagName.toLowerCase()}.innerHTML`,
+          kind: 'dom_binding',
+        });
+        if (cleanups) cleanups.add(stop);
+      } else {
+        el.innerHTML = String(value);
+      }
+      continue;
+    }
+
     if (key.startsWith('on') && typeof value === 'function') {
       const eventName = key.slice(2).toLowerCase();
       el.addEventListener(eventName, value);
@@ -504,7 +545,20 @@ function renderVNode(node: AgentChild, instance: ComponentInstance<any, any, any
         el.className = String(value);
       }
     } else if (key === 'style') {
-      if (typeof value === 'object') {
+      if (typeof value === 'function') {
+        const stop = effect(() => {
+          const s = value();
+          if (typeof s === 'object' && s) {
+            Object.assign(el.style, s);
+          } else {
+            el.setAttribute('style', String(s));
+          }
+        }, {
+          name: `dom:${el.tagName.toLowerCase()}.style`,
+          kind: 'dom_binding',
+        });
+        if (cleanups) cleanups.add(stop);
+      } else if (typeof value === 'object' && value) {
         Object.assign(el.style, value);
       } else {
         el.setAttribute('style', String(value));
@@ -641,6 +695,9 @@ function vnodeToString(node: AgentChild): string {
     return node.map(vnodeToString).join('');
   }
   if (typeof node.type === 'function') {
+    if (node.type === Fragment) {
+      return (node.children || []).map(vnodeToString).join('');
+    }
     if (node.type === Show) {
       const whenVal =
         typeof node.props.when === 'function' ? node.props.when() : node.props.when;
@@ -692,6 +749,13 @@ function vnodeToString(node: AgentChild): string {
   }
 
   const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  if (node.props?.dangerouslySetInnerHTML?.__html) {
+    return `<${node.type}${attrStr}>${node.props.dangerouslySetInnerHTML.__html}</${node.type}>`;
+  }
+  if (node.props?.innerHTML) {
+    const raw = typeof node.props.innerHTML === 'function' ? node.props.innerHTML() : node.props.innerHTML;
+    return `<${node.type}${attrStr}>${raw}</${node.type}>`;
+  }
   const childrenStr = node.children.map(vnodeToString).join('');
 
   return `<${node.type}${attrStr}>${childrenStr}</${node.type}>`;

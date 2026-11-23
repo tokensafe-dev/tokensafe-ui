@@ -73,4 +73,30 @@ describe('Two-Way Form Binding (bind)', () => {
     binding.onInput?.({ target: { value: 'Updated Text' } });
     expect(countSig.value).toBe('Updated Text');
   });
+
+  it('supports ref callbacks and dangerouslySetInnerHTML', () => {
+    let capturedEl: HTMLElement | null = null;
+    const TestComponent = defineComponent({
+      id: 'test-ref-html',
+      state: {},
+      render: () =>
+        h(
+          'div',
+          { class: 'container' },
+          h('div', {
+            ref: (el: HTMLElement) => {
+              capturedEl = el;
+            },
+            dangerouslySetInnerHTML: { __html: '<strong>Formatted HTML</strong>' },
+          })
+        ),
+    });
+
+    const inst = TestComponent();
+    const container = document.createElement('div');
+    mount(inst, container);
+
+    expect(capturedEl).not.toBeNull();
+    expect(capturedEl?.innerHTML).toBe('<strong>Formatted HTML</strong>');
+  });
 });

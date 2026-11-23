@@ -152,3 +152,15 @@ export interface ComponentInstance<
   isMounted: boolean;
   scope?: ReactiveScope;
 }
+
+declare global {
+  namespace JSX {
+    interface Element extends AgentVNode {}
+    interface ElementClass {
+      render(): any;
+    }
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+}

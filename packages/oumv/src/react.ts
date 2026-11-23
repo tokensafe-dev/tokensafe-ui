@@ -602,10 +602,12 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
       level: 'L0' | 'L1' | 'L2' | 'L3' | 'L4';
       format?: 'yaml' | 'json' | 'sexp';
       componentId?: string;
+      target?: string;
     }) {
       const format = params.format || 'yaml';
       const root = getRoot();
       const mountedCompIds = Array.from(componentRegistry.keys());
+      const targetCompId = params.componentId || params.target;
 
       // L0: Page Pulse
       if (params.level === 'L0') {
@@ -710,7 +712,7 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
 
       // L2: Component Contract
       if (params.level === 'L2') {
-        const compId = params.componentId || mountedCompIds[0] || 'default';
+        const compId = targetCompId || mountedCompIds[0] || 'default';
         const comp = componentRegistry.get(compId);
 
         const state = comp?.getState ? comp.getState() : {};
@@ -741,7 +743,7 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
 
       // L3: Isolated Source
       if (params.level === 'L3') {
-        const compId = params.componentId || mountedCompIds[0] || 'default';
+        const compId = targetCompId || mountedCompIds[0] || 'default';
         const comp = componentRegistry.get(compId);
         const relPath = comp?.filePath || `${compId}.tsx`;
         const resolved = validateWorkspacePath(relPath, projectRoot);
@@ -766,8 +768,8 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
       }
 
       // L4: Traces
-      const relevantTraces = params.componentId
-        ? traceEvents.filter((e) => e.componentId === params.componentId)
+      const relevantTraces = targetCompId
+        ? traceEvents.filter((e) => e.componentId === targetCompId)
         : traceEvents;
 
       const payload = JSON.stringify(relevantTraces, null, 2);
@@ -897,19 +899,20 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
       };
     },
 
-    async verify(params: { componentId: string; action: string; payload?: any }) {
+    async verify(params: { componentId?: string; target?: string; action: string; payload?: any }) {
       const t0 = performance.now();
-      const comp = componentRegistry.get(params.componentId);
+      const compId = params.componentId || params.target || '';
+      const comp = componentRegistry.get(compId);
 
       if (!comp) {
-        throw new Error(`Component '${params.componentId}' not found in React registry`);
+        throw new Error(`Component '${compId}' not found in React registry`);
       }
 
       const stateBefore = comp.getState ? JSON.parse(JSON.stringify(comp.getState())) : {};
 
       const actionFn = comp.actions ? comp.actions[params.action] : null;
       if (!actionFn) {
-        throw new Error(`Action '${params.action}' not defined on React component '${params.componentId}'`);
+        throw new Error(`Action '${params.action}' not defined on React component '${compId}'`);
       }
 
       const tActionStart = performance.now();
@@ -934,14 +937,14 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
       const trace: ReactTraceEvent = {
         timestamp: Date.now(),
         type: params.action,
-        componentId: params.componentId,
-        details: `Action '${params.action}' executed on React component '${params.componentId}'`,
+        componentId: compId,
+        details: `Action '${params.action}' executed on React component '${compId}'`,
         diff: stateDiff,
       };
       traceEvents.push(trace);
 
       return {
-        componentId: params.componentId,
+        componentId: compId,
         action: params.action,
         stateBefore,
         stateAfter,

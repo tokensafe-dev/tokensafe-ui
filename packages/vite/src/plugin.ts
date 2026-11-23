@@ -279,6 +279,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         });
       };
 
+      server.middlewares.use('/__oumv/rpc', handleRpc);
       server.middlewares.use('/__tokensafe_ui/rpc', handleRpc);
       server.middlewares.use('/__agent_dom/rpc', handleRpc);
     },
