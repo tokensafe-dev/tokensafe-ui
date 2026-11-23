@@ -1,4 +1,10 @@
 export {
+  ReactBridge,
+  createUseSignal,
+  type ReactBridgeProps,
+} from '@tokensafe-ui/core';
+
+export {
   createReactAdapter,
   connectZustand,
   connectRedux,
