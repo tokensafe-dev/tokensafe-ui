@@ -15,10 +15,55 @@ export interface ReactComponentDefinition {
   dependents?: string[];
 }
 
+/**
+ * Duck-typed interface for Zustand stores or hook-backed vanilla stores (e.g. useCartStore).
+ */
+export interface ZustandStoreLike {
+  getState: () => Record<string, any>;
+  setState?: (partial: any, replace?: boolean) => void;
+  subscribe: (listener: (state: any, prevState?: any) => void) => (() => void) | void;
+}
+
+export interface ZustandConnectorOptions {
+  id?: string;
+  name?: string;
+  filePath?: string;
+  dependencies?: string[];
+  dependents?: string[];
+  actions?: Record<string, (payload?: any) => any | Promise<any>>;
+}
+
+/**
+ * Duck-typed interface for Redux stores (e.g. configureStore() from RTK or legacy createStore).
+ */
+export interface ReduxStoreLike {
+  getState: () => any;
+  dispatch: (action: any) => any;
+  subscribe: (listener: () => void) => (() => void) | void;
+}
+
+export interface ReduxConnectorOptions {
+  id?: string;
+  name?: string;
+  filePath?: string;
+  dependencies?: string[];
+  dependents?: string[];
+  actionCreators?: Record<string, (payload?: any) => any>;
+  actions?: Record<string, (payload?: any) => any | Promise<any>>;
+}
+
+export type StoreLike = ZustandStoreLike | ReduxStoreLike | ReactComponentDefinition;
+
+export interface ConnectedStoreComponent extends ReactComponentDefinition {
+  subscribeToTraces?: (onTrace: (event: ReactTraceEvent) => void) => () => void;
+  unsubscribe?: () => void;
+}
+
 export interface ReactAdapterConfig {
   projectRoot?: string;
   rootElement?: HTMLElement;
   components?: Record<string, ReactComponentDefinition>;
+  stores?: Record<string, StoreLike>;
 }
 
 export interface ReactTraceEvent {
@@ -27,6 +72,212 @@ export interface ReactTraceEvent {
   componentId: string;
   details: string;
   diff?: Record<string, any>;
+}
+
+export function isZustandStore(store: any): store is ZustandStoreLike {
+  return (
+    store != null &&
+    typeof store.getState === 'function' &&
+    typeof store.subscribe === 'function' &&
+    (typeof store.setState === 'function' || !('dispatch' in store))
+  );
+}
+
+export function isReduxStore(store: any): store is ReduxStoreLike {
+  return (
+    store != null &&
+    typeof store.getState === 'function' &&
+    typeof store.dispatch === 'function' &&
+    typeof store.subscribe === 'function'
+  );
+}
+
+/**
+ * Connects a Zustand store to the OUMV protocol.
+ * Auto-discovers state properties and actions, and subscribes to state transitions for L4 traces.
+ */
+export function connectZustand(
+  store: ZustandStoreLike,
+  options: ZustandConnectorOptions = {}
+): ConnectedStoreComponent {
+  const storeId = options.id || options.name || 'zustand-store';
+
+  const getState = (): Record<string, any> => {
+    const raw = store.getState() || {};
+    const state: Record<string, any> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value !== 'function') {
+        state[key] = value;
+      }
+    }
+    return state;
+  };
+
+  const actions: Record<string, (payload?: any) => any> = {};
+
+  // Auto-discover actions from store.getState()
+  const rawInitial = store.getState() || {};
+  for (const [key, value] of Object.entries(rawInitial)) {
+    if (typeof value === 'function') {
+      actions[key] = async (payload?: any) => {
+        const current = store.getState() || {};
+        const fn = typeof current[key] === 'function' ? current[key] : value;
+        return fn(payload);
+      };
+    }
+  }
+
+  // Expose generic setState if present
+  if (typeof store.setState === 'function') {
+    actions['setState'] = (payload: any) => {
+      store.setState!(payload);
+    };
+  }
+
+  if (options.actions) {
+    Object.assign(actions, options.actions);
+  }
+
+  let traceCallback: ((event: ReactTraceEvent) => void) | null = null;
+  let lastState = getState();
+
+  let unsub: (() => void) | void;
+  try {
+    unsub = store.subscribe((nextOrState: any, prevOrUndefined?: any) => {
+      const currentState = getState();
+      const diff: Record<string, { before: any; after: any }> = {};
+      const keys = new Set([...Object.keys(lastState), ...Object.keys(currentState)]);
+      let hasChanges = false;
+
+      for (const k of keys) {
+        if (!Object.is(lastState[k], currentState[k])) {
+          diff[k] = { before: lastState[k], after: currentState[k] };
+          hasChanges = true;
+        }
+      }
+
+      if (hasChanges && traceCallback) {
+        traceCallback({
+          timestamp: Date.now(),
+          type: 'zustand:update',
+          componentId: storeId,
+          details: `Zustand store '${storeId}' state updated`,
+          diff,
+        });
+      }
+
+      lastState = currentState;
+    });
+  } catch {}
+
+  return {
+    id: storeId,
+    name: options.name || storeId,
+    filePath: options.filePath,
+    dependencies: options.dependencies,
+    dependents: options.dependents,
+    getState,
+    actions,
+    subscribeToTraces: (onTrace) => {
+      traceCallback = onTrace;
+      return () => {
+        traceCallback = null;
+      };
+    },
+    unsubscribe: () => {
+      if (typeof unsub === 'function') unsub();
+    },
+  };
+}
+
+/**
+ * Connects a Redux store to the OUMV protocol.
+ * Subscribes to store updates for L4 traces and maps action creators.
+ */
+export function connectRedux(
+  store: ReduxStoreLike,
+  options: ReduxConnectorOptions = {}
+): ConnectedStoreComponent {
+  const storeId = options.id || options.name || 'redux-store';
+
+  const getState = (): Record<string, any> => {
+    const raw = store.getState();
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      const state: Record<string, any> = {};
+      for (const [key, value] of Object.entries(raw)) {
+        if (typeof value !== 'function') {
+          state[key] = value;
+        }
+      }
+      return state;
+    }
+    return { value: raw };
+  };
+
+  const actions: Record<string, (payload?: any) => any> = {
+    dispatch: (action: any) => store.dispatch(action),
+  };
+
+  if (options.actionCreators) {
+    for (const [name, creator] of Object.entries(options.actionCreators)) {
+      actions[name] = (payload?: any) => store.dispatch(creator(payload));
+    }
+  }
+
+  if (options.actions) {
+    Object.assign(actions, options.actions);
+  }
+
+  let traceCallback: ((event: ReactTraceEvent) => void) | null = null;
+  let lastState = getState();
+
+  let unsub: (() => void) | void;
+  try {
+    unsub = store.subscribe(() => {
+      const currentState = getState();
+      const diff: Record<string, { before: any; after: any }> = {};
+      const keys = new Set([...Object.keys(lastState), ...Object.keys(currentState)]);
+      let hasChanges = false;
+
+      for (const k of keys) {
+        if (!Object.is(lastState[k], currentState[k])) {
+          diff[k] = { before: lastState[k], after: currentState[k] };
+          hasChanges = true;
+        }
+      }
+
+      if (hasChanges && traceCallback) {
+        traceCallback({
+          timestamp: Date.now(),
+          type: 'redux:update',
+          componentId: storeId,
+          details: `Redux store '${storeId}' state updated`,
+          diff,
+        });
+      }
+
+      lastState = currentState;
+    });
+  } catch {}
+
+  return {
+    id: storeId,
+    name: options.name || storeId,
+    filePath: options.filePath,
+    dependencies: options.dependencies,
+    dependents: options.dependents,
+    getState,
+    actions,
+    subscribeToTraces: (onTrace) => {
+      traceCallback = onTrace;
+      return () => {
+        traceCallback = null;
+      };
+    },
+    unsubscribe: () => {
+      if (typeof unsub === 'function') unsub();
+    },
+  };
 }
 
 /**
@@ -52,14 +303,59 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
     return null;
   };
 
+  const unsubs: Array<() => void> = [];
+
   const registerComponent = (comp: ReactComponentDefinition) => {
     componentRegistry.set(comp.id, comp);
   };
+
+  const registerStore = (id: string, store: StoreLike) => {
+    let comp: ConnectedStoreComponent;
+    if (isZustandStore(store)) {
+      comp = connectZustand(store, { id });
+    } else if (isReduxStore(store)) {
+      comp = connectRedux(store, { id });
+    } else if (typeof store === 'object' && 'getState' in store) {
+      comp = store as ConnectedStoreComponent;
+    } else {
+      throw new Error(`Invalid store provided for '${id}': expected Zustand or Redux store interface`);
+    }
+
+    if (comp.subscribeToTraces) {
+      const unsubTrace = comp.subscribeToTraces((ev) => {
+        traceEvents.push(ev);
+      });
+      unsubs.push(unsubTrace);
+    }
+    if (comp.unsubscribe) {
+      unsubs.push(comp.unsubscribe);
+    }
+
+    componentRegistry.set(id, comp);
+    return comp;
+  };
+
+  if (config.stores) {
+    for (const [id, store] of Object.entries(config.stores)) {
+      registerStore(id, store);
+    }
+  }
 
   return {
     name: 'react',
     version: '18.x/19.x',
     registerComponent,
+    registerStore,
+    recordTrace: (event: ReactTraceEvent) => {
+      traceEvents.push(event);
+    },
+    dispose: () => {
+      for (const u of unsubs) {
+        try {
+          u();
+        } catch {}
+      }
+    },
 
     async handshake(params?: any) {
       return {

@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createReactAdapter } from '../src/react.js';
+import {
+  createReactAdapter,
+  connectZustand,
+  connectRedux,
+  isZustandStore,
+  isReduxStore,
+} from '../src/react.js';
 
 describe('@tokensafe-ui/oumv - React Runtime Adapter', () => {
   let tmpDir: string;
@@ -237,5 +243,150 @@ export function Counter() {
     // Verify L4 traces recorded the action
     const l4 = await adapter.observe({ level: 'L4', componentId: 'counter' });
     expect(l4.payload).toContain('increment');
+  });
+
+  it('supports Zustand stores with auto-discovery of actions and real-time trace subscriptions', async () => {
+    // Mock a standard Zustand store
+    const listeners = new Set<(state: any) => void>();
+    let storeState = {
+      items: ['apple'],
+      total: 10,
+      addItem: (item: string) => {
+        storeState = {
+          ...storeState,
+          items: [...storeState.items, item],
+          total: storeState.total + 15,
+        };
+        listeners.forEach((l) => l(storeState));
+      },
+      clear: () => {
+        storeState = {
+          ...storeState,
+          items: [],
+          total: 0,
+        };
+        listeners.forEach((l) => l(storeState));
+      },
+    };
+
+    const zustandStore = {
+      getState: () => storeState,
+      setState: (partial: any) => {
+        storeState = { ...storeState, ...partial };
+        listeners.forEach((l) => l(storeState));
+      },
+      subscribe: (listener: (state: any) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+
+    expect(isZustandStore(zustandStore)).toBe(true);
+
+    const adapter = createReactAdapter({
+      projectRoot: tmpDir,
+      stores: {
+        cart: zustandStore,
+      },
+    });
+
+    // 1. Observe L2 contract: functions should be auto-extracted to actions, state contains only data
+    const l2 = await adapter.observe({ level: 'L2', componentId: 'cart', format: 'json' });
+    const contract = JSON.parse(l2.payload);
+    expect(contract.componentId).toBe('cart');
+    expect(contract.state.items).toEqual(['apple']);
+    expect(contract.state.total).toBe(10);
+    expect(contract.actions).toContain('addItem');
+    expect(contract.actions).toContain('clear');
+    expect(contract.actions).toContain('setState');
+
+    // 2. Verify: call auto-discovered action 'addItem' via adapter
+    const verifyRes = await adapter.verify({
+      componentId: 'cart',
+      action: 'addItem',
+      payload: 'orange',
+    });
+
+    expect(verifyRes.stateBefore.items).toEqual(['apple']);
+    expect(verifyRes.stateAfter.items).toEqual(['apple', 'orange']);
+    expect(verifyRes.stateAfter.total).toBe(25);
+    expect(verifyRes.stateDiff.items).toBeDefined();
+
+    // 3. Verify L4 traces automatically recorded the update via subscription
+    const l4 = await adapter.observe({ level: 'L4', componentId: 'cart' });
+    expect(l4.payload).toContain('cart');
+
+    adapter.dispose?.();
+  });
+
+  it('supports Redux stores with action creators, dispatch, and trace updates', async () => {
+    // Mock a Redux store
+    const listeners = new Set<() => void>();
+    let state = { count: 100, user: 'alice' };
+
+    const reduxStore = {
+      getState: () => state,
+      dispatch: (action: { type: string; payload?: any }) => {
+        if (action.type === 'counter/inc') {
+          state = { ...state, count: state.count + (action.payload || 1) };
+        } else if (action.type === 'user/set') {
+          state = { ...state, user: action.payload };
+        }
+        listeners.forEach((l) => l());
+        return action;
+      },
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+
+    expect(isReduxStore(reduxStore)).toBe(true);
+
+    const connectedRedux = connectRedux(reduxStore, {
+      id: 'auth-store',
+      actionCreators: {
+        incrementCount: (by: number) => ({ type: 'counter/inc', payload: by }),
+        setUser: (user: string) => ({ type: 'user/set', payload: user }),
+      },
+    });
+
+    const adapter = createReactAdapter({
+      projectRoot: tmpDir,
+      components: {
+        'auth-store': connectedRedux,
+      },
+    });
+
+    // 1. Observe L2
+    const l2 = await adapter.observe({ level: 'L2', componentId: 'auth-store', format: 'json' });
+    const contract = JSON.parse(l2.payload);
+    expect(contract.state.count).toBe(100);
+    expect(contract.actions).toContain('dispatch');
+    expect(contract.actions).toContain('incrementCount');
+    expect(contract.actions).toContain('setUser');
+
+    // 2. Verify action creator execution
+    const verifyRes = await adapter.verify({
+      componentId: 'auth-store',
+      action: 'incrementCount',
+      payload: 50,
+    });
+
+    expect(verifyRes.stateBefore.count).toBe(100);
+    expect(verifyRes.stateAfter.count).toBe(150);
+    expect(verifyRes.stateDiff.count).toEqual({ before: 100, after: 150 });
+
+    // 3. Verify direct dispatch action
+    const dispatchRes = await adapter.verify({
+      componentId: 'auth-store',
+      action: 'dispatch',
+      payload: { type: 'user/set', payload: 'bob' },
+    });
+
+    expect(dispatchRes.stateAfter.user).toBe('bob');
+    expect(dispatchRes.stateDiff.user).toEqual({ before: 'alice', after: 'bob' });
+
+    connectedRedux.unsubscribe?.();
   });
 });

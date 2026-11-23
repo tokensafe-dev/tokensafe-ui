@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createReactAdapter } from '../src/react.js';
+import {
+  createReactAdapter,
+  connectZustand,
+  connectRedux,
+  isZustandStore,
+  isReduxStore,
+} from '../src/react.js';
 import { createVueAdapter } from '../src/vue.js';
 import {
   createAgentDomAdapter,
@@ -8,8 +14,12 @@ import {
 } from '../src/oumv.js';
 
 describe('tokensafe-ui - First-Class Adapters Export (Unified Distribution)', () => {
-  it('exports createReactAdapter from tokensafe-ui/react and tokensafe-ui/oumv', async () => {
+  it('exports createReactAdapter, connectZustand, connectRedux from tokensafe-ui/react and tokensafe-ui/oumv', async () => {
     expect(typeof createReactAdapter).toBe('function');
+    expect(typeof connectZustand).toBe('function');
+    expect(typeof connectRedux).toBe('function');
+    expect(typeof isZustandStore).toBe('function');
+    expect(typeof isReduxStore).toBe('function');
     expect(typeof reactFromOumv).toBe('function');
 
     const adapter = createReactAdapter();
