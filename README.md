@@ -231,6 +231,26 @@ batch(() => {
 
 ---
 
+## Frontend Adapters: React & Vue Retrofit
+
+`tokensafe-ui` acts as the unified frontend repository for the **OUMV** protocol. In addition to its native reactive engine, it provides zero-rewrite retrofit adapters for existing React and Vue applications:
+
+### 1. React Adapter (`@tokensafe-ui/oumv/react`)
+Connects React components, hooks, and stores to OUMV:
+- **Zustand**: `connectZustand(useCartStore, { name: 'cart' })`
+- **Redux / Redux Toolkit**: `connectRedux(store, { actionCreators: { ... } })`
+- **useReducer**: `connectReducer([state, dispatch], { name: 'orderReducer' })`
+- **React Context**: `connectContext(contextValue, { name: 'authContext' })`
+- **Static Discovery**: `scanSourceForComponents(source, filePath)` extracts components and routes directly from TSX/JSX AST via Babel without running a headless browser.
+
+### 2. Vue Adapter (`@tokensafe-ui/oumv/vue`)
+Connects Vue 3 Composition API components and Pinia stores to OUMV.
+
+### 3. Vite Dev-Server Bridge (`@tokensafe-ui/vite`)
+Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.tokensafe/runtime.json`, mode `0600`) in dev mode.
+
+---
+
 ## Agent Usability Benchmark (AUB): React vs. TokenSafe UI
 
 To scientifically test whether TokenSafe UI genuinely accelerates autonomous AI development rather than merely saving reading tokens, the **Agent Usability Benchmark (AUB / AUI-Bench)** evaluates autonomous AI agents solving identical, production-grade tasks on both **React 18/19** and **TokenSafe UI**.

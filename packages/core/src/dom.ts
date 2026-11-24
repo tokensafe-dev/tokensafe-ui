@@ -844,8 +844,12 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
           for (const item of val) {
             if (item !== null && item !== undefined && typeof item !== 'boolean') {
               const rendered = renderVNode(item, instance);
+              if (rendered.nodeType === 11) {
+                currentNodes.push(...Array.from(rendered.childNodes));
+              } else {
+                currentNodes.push(rendered);
+              }
               endAnchor.parentNode?.insertBefore(rendered, endAnchor);
-              currentNodes.push(rendered);
             }
           }
           return;
@@ -858,8 +862,12 @@ function renderVNode(node: AgentChild, instance?: ComponentInstance<any, any, an
           }
           currentNodes = [];
           const rendered = renderVNode(val, instance);
+          if (rendered.nodeType === 11) {
+            currentNodes = Array.from(rendered.childNodes);
+          } else {
+            currentNodes = [rendered];
+          }
           endAnchor.parentNode?.insertBefore(rendered, endAnchor);
-          currentNodes.push(rendered);
           return;
         }
 

@@ -1,16 +1,19 @@
 import type { Plugin, ViteDevServer } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { transformAgentDomJsx } from './transformer.js';
 import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
 import { testAction, testEffect, hotReloadComponent, activeInstances } from '@tokensafe-ui/core';
 
 export interface TokensafeUiPluginOptions {
   enableRpc?: boolean;
+  sessionToken?: string;
 }
 
 export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
   const enableRpc = options.enableRpc !== false;
+  const sessionToken = options.sessionToken || crypto.randomBytes(16).toString('hex');
   let latestLiveSnapshot = 'view: empty\nelements: []';
 
   return {
@@ -65,6 +68,165 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
             const { method, params } = payload;
 
             switch (method) {
+              case 'oumv/handshake':
+              case 'handshake': {
+                res.end(
+                  JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: payload.id ?? 1,
+                    result: {
+                      protocolVersion: '1.0.0',
+                      runtimeInfo: {
+                        name: 'tokensafe-ui',
+                        version: '0.1.16',
+                        framework: 'SolidJS + TokenSafe',
+                      },
+                      capabilities: {
+                        observe: { levels: ['L0', 'L1', 'L2'] },
+                        understand: { causality: true },
+                        mutate: { occ: true },
+                        verify: { synthetic: true },
+                      },
+                    },
+                  })
+                );
+                break;
+              }
+
+              case 'oumv/observe': {
+                const level = String(params?.level || 'L0').toUpperCase();
+                const resultData: any = {
+                  pulse: 'healthy',
+                  runtime: 'tokensafe-ui',
+                  version: '0.1.16',
+                  activeComponentsCount: activeInstances.size,
+                };
+
+                if (level === 'L0') {
+                  resultData.summary = `tokensafe-ui active (${activeInstances.size} components registered)`;
+                  resultData.componentIds = Array.from(activeInstances.keys());
+                } else if (level === 'L1') {
+                  resultData.snapshot = latestLiveSnapshot;
+                  resultData.components = Array.from(activeInstances.entries()).map(([id, inst]) => ({
+                    id,
+                    state: inst.state,
+                    signals: Object.keys(inst.signals || {}),
+                  }));
+                } else {
+                  resultData.snapshot = latestLiveSnapshot;
+                  resultData.components = Array.from(activeInstances.entries()).map(([id, inst]) => ({
+                    id,
+                    state: inst.state,
+                    signals: inst.signals,
+                    vnode: inst.vnode,
+                  }));
+                }
+
+                res.end(
+                  JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: payload.id ?? 1,
+                    result: resultData,
+                  })
+                );
+                break;
+              }
+
+              case 'oumv/understand': {
+                res.end(
+                  JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: payload.id ?? 1,
+                    result: {
+                      query: params?.query || 'causality',
+                      target: params?.target || null,
+                      activeComponents: Array.from(activeInstances.keys()),
+                      snapshot: latestLiveSnapshot,
+                      causalityTrace: 'Reactive dependency graph tracked by SolidJS + TokenSafe signals',
+                    },
+                  })
+                );
+                break;
+              }
+
+              case 'oumv/verify': {
+                const targetId = params?.target || params?.componentId;
+                const actionName = params?.action;
+                const actionPayload = params?.payload;
+                try {
+                  const testResult = await testAction(targetId, actionName, actionPayload);
+                  res.end(
+                    JSON.stringify({
+                      jsonrpc: '2.0',
+                      id: payload.id ?? 1,
+                      result: testResult,
+                    })
+                  );
+                } catch (err: any) {
+                  res.statusCode = 500;
+                  res.end(
+                    JSON.stringify({
+                      jsonrpc: '2.0',
+                      id: payload.id ?? 1,
+                      error: { message: err.message },
+                    })
+                  );
+                }
+                break;
+              }
+
+              case 'oumv/mutate': {
+                const filePath = params?.path || params?.filePath;
+                const patch = params?.patch;
+                if (!filePath || !patch) {
+                  res.statusCode = 400;
+                  res.end(
+                    JSON.stringify({
+                      jsonrpc: '2.0',
+                      id: payload.id ?? 1,
+                      error: { message: 'Missing filePath or patch in mutate' },
+                    })
+                  );
+                  break;
+                }
+                const resolvedPath = path.isAbsolute(filePath)
+                  ? filePath
+                  : path.resolve(server.config.root, filePath);
+                if (!fs.existsSync(resolvedPath)) {
+                  res.statusCode = 404;
+                  res.end(
+                    JSON.stringify({
+                      jsonrpc: '2.0',
+                      id: payload.id ?? 1,
+                      error: { message: `File not found: ${resolvedPath}` },
+                    })
+                  );
+                  break;
+                }
+                const source = fs.readFileSync(resolvedPath, 'utf-8');
+                const patchResult = applyPatch(source, patch);
+                if (!patchResult.success) {
+                  res.statusCode = 400;
+                  res.end(
+                    JSON.stringify({
+                      jsonrpc: '2.0',
+                      id: payload.id ?? 1,
+                      error: { message: patchResult.error },
+                    })
+                  );
+                  break;
+                }
+                fs.writeFileSync(resolvedPath, patchResult.code, 'utf-8');
+                res.end(
+                  JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: payload.id ?? 1,
+                    result: { success: true, filePath: resolvedPath },
+                  })
+                );
+                break;
+              }
+
               case 'get_status': {
                 res.end(
                   JSON.stringify({
@@ -282,6 +444,40 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
       server.middlewares.use('/__oumv/rpc', handleRpc);
       server.middlewares.use('/__tokensafe_ui/rpc', handleRpc);
       server.middlewares.use('/__agent_dom/rpc', handleRpc);
+
+      // Register .tokensafe/runtime.json descriptor
+      const rootDir = server.config?.root || process.cwd();
+      const tokensafeDir = path.join(rootDir, '.tokensafe');
+      const writeDescriptor = () => {
+        try {
+          fs.mkdirSync(tokensafeDir, { recursive: true });
+          const runtimeFile = path.join(tokensafeDir, 'runtime.json');
+          let existing: any = {};
+          if (fs.existsSync(runtimeFile)) {
+            try { existing = JSON.parse(fs.readFileSync(runtimeFile, 'utf-8')); } catch {}
+          }
+          const port = server.config?.server?.port || 5173;
+          existing.frontend = {
+            name: 'tokensafe-ui',
+            version: '0.1.16',
+            url: `http://localhost:${port}/__oumv/rpc`,
+            sessionToken,
+            capabilities: {
+              observeLevels: ['L0', 'L1', 'L2'],
+              causality: true,
+              occ: true,
+            },
+          };
+          fs.writeFileSync(runtimeFile, JSON.stringify(existing, null, 2), 'utf-8');
+          try { fs.chmodSync(runtimeFile, 0o600); } catch {}
+        } catch {}
+      };
+
+      if (server.httpServer) {
+        server.httpServer.once('listening', writeDescriptor);
+      } else {
+        writeDescriptor();
+      }
     },
   };
 }

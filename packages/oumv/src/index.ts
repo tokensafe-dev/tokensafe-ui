@@ -16,6 +16,7 @@ export interface OumvAdapterConfig {
 
 export * from './react.js';
 export * from './vue.js';
+export * from './static_discovery.js';
 
 /**
  * Creates a native OUMV Protocol Adapter for agent-dom.
