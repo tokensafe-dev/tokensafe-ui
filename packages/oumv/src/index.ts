@@ -17,6 +17,7 @@ export interface OumvAdapterConfig {
 export * from './react.js';
 export * from './vue.js';
 export * from './static_discovery.js';
+export * from './contracts.js';
 
 /**
  * Creates a native OUMV Protocol Adapter for agent-dom.
@@ -83,13 +84,26 @@ export function createAgentDomAdapter(config: OumvAdapterConfig = {}) {
         payload = `level: ${params.level}\nstatus: detached\n`;
       }
 
-      return {
+      const result: Record<string, any> = {
         level: params.level,
         format,
         payload,
         tokenEstimate: Math.ceil(payload.length / 4),
         timestamp: Date.now(),
       };
+
+      // Level 3 semantics: expose declared component contracts at L2+ (spec §6.4)
+      if (params.level === 'L2' || params.level === 'L3') {
+        const { listOUMVComponentContracts } = await import('./contracts.js');
+        const contracts = listOUMVComponentContracts().filter(
+          (c) => !params.componentId || c.componentId === params.componentId
+        );
+        if (contracts.length > 0) {
+          result.contracts = contracts;
+        }
+      }
+
+      return result;
     },
 
     async understand(params: {
