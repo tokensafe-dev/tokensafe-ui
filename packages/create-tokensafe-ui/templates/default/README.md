@@ -1,6 +1,6 @@
 # TokenSafe UI Starter App
 
-A modern, deterministic frontend application built with **TokenSafe UI** and implementing **OUMV: The Universal Agent-UI Protocol**.
+A modern, deterministic frontend application built with **TokenSafe UI** and implementing **OUMV — the Universal Agent-Runtime Protocol** (Frontend Profile).
 
 ## Getting Started
 
