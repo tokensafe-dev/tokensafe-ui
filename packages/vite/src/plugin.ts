@@ -3,8 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { transformAgentDomJsx } from './transformer.js';
-import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
-import { testAction, testEffect, hotReloadComponent, activeInstances } from '@tokensafe-ui/core';
+import type { ComponentPatch } from '@tokensafe-ui/patcher';
+
+// The native SolidJS runtime is loaded lazily and only by the native bridge.
+// A React/Vue app must never evaluate solid-js just because it imports this plugin.
+const loadNativeCore = () => import('@tokensafe-ui/core');
+const loadNativePatcher = () => import('@tokensafe-ui/patcher');
 import {
   REACT_BRIDGE_PUBLIC_PATH,
   REACT_BRIDGE_VIRTUAL_ID,
@@ -253,6 +257,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
 
       // JSON-RPC / HTTP Bridge endpoint for AI agents
       const handleRpc = async (req: any, res: any) => {
+        const [core, patcher] = await Promise.all([loadNativeCore(), loadNativePatcher()]);
         if (req.method !== 'POST') {
           res.statusCode = 405;
           res.end(JSON.stringify({ error: 'Method not allowed' }));
@@ -307,22 +312,22 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                   pulse: 'healthy',
                   runtime: 'tokensafe-ui',
                   version: '0.1.16',
-                  activeComponentsCount: activeInstances.size,
+                  activeComponentsCount: core.activeInstances.size,
                 };
 
                 if (level === 'L0') {
-                  resultData.summary = `tokensafe-ui active (${activeInstances.size} components registered)`;
-                  resultData.componentIds = Array.from(activeInstances.keys());
+                  resultData.summary = `tokensafe-ui active (${core.activeInstances.size} components registered)`;
+                  resultData.componentIds = Array.from(core.activeInstances.keys());
                 } else if (level === 'L1') {
                   resultData.snapshot = latestLiveSnapshot;
-                  resultData.components = Array.from(activeInstances.entries()).map(([id, inst]) => ({
+                  resultData.components = Array.from(core.activeInstances.entries()).map(([id, inst]) => ({
                     id,
                     state: inst.state,
                     signals: Object.keys(inst.signals || {}),
                   }));
                 } else {
                   resultData.snapshot = latestLiveSnapshot;
-                  resultData.components = Array.from(activeInstances.entries()).map(([id, inst]) => ({
+                  resultData.components = Array.from(core.activeInstances.entries()).map(([id, inst]) => ({
                     id,
                     state: inst.state,
                     signals: inst.signals,
@@ -348,7 +353,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                     result: {
                       query: params?.query || 'causality',
                       target: params?.target || null,
-                      activeComponents: Array.from(activeInstances.keys()),
+                      activeComponents: Array.from(core.activeInstances.keys()),
                       snapshot: latestLiveSnapshot,
                       causalityTrace: 'Reactive dependency graph tracked by SolidJS + TokenSafe signals',
                     },
@@ -362,7 +367,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                 const actionName = params?.action;
                 const actionPayload = params?.payload;
                 try {
-                  const testResult = await testAction(targetId, actionName, actionPayload);
+                  const testResult = await core.testAction(targetId, actionName, actionPayload);
                   res.end(
                     JSON.stringify({
                       jsonrpc: '2.0',
@@ -412,7 +417,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                   break;
                 }
                 const source = fs.readFileSync(resolvedPath, 'utf-8');
-                const patchResult = applyPatch(source, patch);
+                const patchResult = patcher.applyPatch(source, patch);
                 if (!patchResult.success) {
                   res.statusCode = 400;
                   res.end(
@@ -457,7 +462,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
               case 'test_action': {
                 const { componentId, action, payload, filePath, expect, assert } = (params || {}) as any;
                 try {
-                  if (!activeInstances.has(componentId)) {
+                  if (!core.activeInstances.has(componentId)) {
                     const candidates = [
                       filePath,
                       path.join(server.config.root, 'src', `${componentId}.tsx`),
@@ -474,19 +479,19 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                         try {
                           const mod = await server.ssrLoadModule(resolvedCand);
                           for (const exp of Object.values(mod)) {
-                            if (typeof exp === 'function' && !activeInstances.has(componentId)) {
+                            if (typeof exp === 'function' && !core.activeInstances.has(componentId)) {
                               try {
                                 exp();
                               } catch {}
                             }
                           }
                         } catch {}
-                        if (activeInstances.has(componentId)) break;
+                        if (core.activeInstances.has(componentId)) break;
                       }
                     }
                   }
 
-                  const testResult = await testAction(componentId, action, payload, { expect, assert });
+                  const testResult = await core.testAction(componentId, action, payload, { expect, assert });
                   res.end(JSON.stringify({ result: testResult }));
                 } catch (err: any) {
                   res.statusCode = 500;
@@ -498,7 +503,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
               case 'test_effect': {
                 const { componentId, effect, payload, filePath, timeoutMs, expectDispatched, expect } = (params || {}) as any;
                 try {
-                  if (!activeInstances.has(componentId)) {
+                  if (!core.activeInstances.has(componentId)) {
                     const candidates = [
                       filePath,
                       path.join(server.config.root, 'src', `${componentId}.tsx`),
@@ -515,19 +520,19 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                         try {
                           const mod = await server.ssrLoadModule(resolvedCand);
                           for (const exp of Object.values(mod)) {
-                            if (typeof exp === 'function' && !activeInstances.has(componentId)) {
+                            if (typeof exp === 'function' && !core.activeInstances.has(componentId)) {
                               try {
                                 exp();
                               } catch {}
                             }
                           }
                         } catch {}
-                        if (activeInstances.has(componentId)) break;
+                        if (core.activeInstances.has(componentId)) break;
                       }
                     }
                   }
 
-                  const effectResult = await testEffect(componentId, effect, {
+                  const effectResult = await core.testEffect(componentId, effect, {
                     payload,
                     timeoutMs,
                     expectDispatched,
@@ -558,11 +563,11 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                       if (typeof exp === 'function') {
                         try {
                           if (componentId) {
-                            hotReloadComponent(componentId, exp as any);
+                            core.hotReloadComponent(componentId, exp as any);
                           } else {
                             const inst = (exp as any)();
                             if (inst && inst.id) {
-                              hotReloadComponent(inst.id, exp as any);
+                              core.hotReloadComponent(inst.id, exp as any);
                             }
                           }
                         } catch {}
@@ -593,7 +598,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                 }
 
                 const source = fs.readFileSync(resolvedPath, 'utf-8');
-                const patchResult = applyPatch(source, patch);
+                const patchResult = patcher.applyPatch(source, patch);
 
                 if (!patchResult.success) {
                   res.statusCode = 400;
@@ -617,10 +622,10 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                     if (typeof exp === 'function') {
                       try {
                         if (cid) {
-                          hotReloadComponent(cid, exp as any);
+                          core.hotReloadComponent(cid, exp as any);
                         } else {
                           const inst = (exp as any)();
-                          if (inst && inst.id) hotReloadComponent(inst.id, exp as any);
+                          if (inst && inst.id) core.hotReloadComponent(inst.id, exp as any);
                         }
                       } catch {}
                     }

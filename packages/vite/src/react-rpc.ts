@@ -3,13 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
-import {
-  scanProjectStaticResources,
-  scanSourceForComponents,
-  listOUMVComponentContracts,
-  type OumvContractRecord,
-} from '@tokensafe-ui/oumv';
-import { validateWorkspacePath, atomicApplySourceEdit } from '@tokensafe-ui/mcp';
+// Static discovery + contracts are solid-free entry points: importing the oumv
+// index here would evaluate the native runtime for a React-only project.
+import { scanProjectStaticResources, scanSourceForComponents } from '@tokensafe-ui/oumv/static';
+import { listOUMVComponentContracts, type OumvContractRecord } from '@tokensafe-ui/oumv/contracts';
+// Loaded lazily: the React controller must not evaluate the native runtime (or its
+// solid-js dependency) just to serve observe/verify.
+const loadMcpTools = () => import('@tokensafe-ui/mcp');
 import { getGlobalContractsPath } from './runtime-store.js';
 
 function readSidecarContracts(rootDir: string): OumvContractRecord[] {
@@ -874,7 +874,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               break;
             }
             try {
-              const maybe = validateWorkspacePath(candidate, rootDir);
+              const maybe = (await loadMcpTools()).validateWorkspacePath(candidate, rootDir);
               if (fs.existsSync(maybe) && fs.statSync(maybe).isFile()) {
                 relPath = candidate;
                 cleanName = cname;
@@ -885,7 +885,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
           let resolved: string;
           try {
-            resolved = validateWorkspacePath(relPath, rootDir);
+            resolved = (await loadMcpTools()).validateWorkspacePath(relPath, rootDir);
           } catch (err: any) {
             return rpcError(id, ERR_SECURITY, err.message);
           }
@@ -1106,7 +1106,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
         const symbol = String(params?.symbol || '').trim();
         let resolved: string;
         try {
-          resolved = validateWorkspacePath(relPath, rootDir);
+          resolved = (await loadMcpTools()).validateWorkspacePath(relPath, rootDir);
         } catch (err: any) {
           return rpcError(id, ERR_SECURITY, err.message);
         }
@@ -1162,7 +1162,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
         let resolved: string;
         try {
-          resolved = validateWorkspacePath(relPath, rootDir);
+          resolved = (await loadMcpTools()).validateWorkspacePath(relPath, rootDir);
         } catch (err: any) {
           return rpcError(id, ERR_SECURITY, err.message);
         }
@@ -1180,7 +1180,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
         }
 
         try {
-          const res = atomicApplySourceEdit(resolved, newSource, {
+          const res = (await loadMcpTools()).atomicApplySourceEdit(resolved, newSource, {
             expectedVersion,
             validateTypeScript: /\.(tsx?|jsx?)$/.test(resolved),
             createBackup: true,

@@ -20,6 +20,7 @@ export default defineConfig({
       '@tokensafe-ui/patcher': path.resolve(__dirname, 'packages/patcher/src/index.ts'),
       '@tokensafe-ui/oumv/react-client': path.resolve(__dirname, 'packages/oumv/src/react-client.ts'),
       '@tokensafe-ui/oumv/contracts': path.resolve(__dirname, 'packages/oumv/src/contracts.ts'),
+      '@tokensafe-ui/oumv/static': path.resolve(__dirname, 'packages/oumv/src/static.ts'),
       '@tokensafe-ui/oumv': path.resolve(__dirname, 'packages/oumv/src/index.ts'),
       '@tokensafe-ui/vite': path.resolve(__dirname, 'packages/vite/src/index.ts'),
     },
