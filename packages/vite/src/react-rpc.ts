@@ -10,6 +10,51 @@ import {
   type OumvContractRecord,
 } from '@tokensafe-ui/oumv';
 import { validateWorkspacePath, atomicApplySourceEdit } from '@tokensafe-ui/mcp';
+import { getGlobalContractsPath } from './runtime-store.js';
+
+function readSidecarContracts(rootDir: string): OumvContractRecord[] {
+  const candidateFiles = [
+    getGlobalContractsPath(rootDir),
+    path.join(rootDir, '.tokensafe', 'contracts.json'),
+  ];
+  const out: OumvContractRecord[] = [];
+  for (const file of candidateFiles) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      const list = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.contracts)
+          ? parsed.contracts
+          : parsed && typeof parsed === 'object'
+            ? Object.entries(parsed).map(([componentId, body]: [string, any]) => ({
+                componentId,
+                ...(body && typeof body === 'object' ? body : {}),
+              }))
+            : [];
+      for (const item of list) {
+        if (!item || typeof item !== 'object') continue;
+        const componentId = String(item.componentId || item.id || '').trim();
+        if (!componentId) continue;
+        const componentName = String(item.componentName || item.name || componentId).trim();
+        out.push({
+          componentId,
+          componentName,
+          description: String(item.description || ''),
+          ...(item.actions ? { actions: item.actions } : {}),
+          ...(item.constraints ? { constraints: item.constraints } : {}),
+          ...(item.stateNotes ? { stateNotes: item.stateNotes } : {}),
+          evidence: {
+            provenance: 'contract',
+            sourceAdapter: 'tokensafe-ui-react-vite-sidecar',
+            confidence: 'confirmed',
+          },
+        });
+      }
+    } catch {}
+  }
+  return out;
+}
 
 export interface ReactBridgeComponent {
   id: string;
@@ -347,6 +392,9 @@ export function createReactOumvController(options: ReactRpcOptions) {
   const getMergedContracts = (): OumvContractRecord[] => {
     const byId = new Map<string, OumvContractRecord>();
     for (const c of listOUMVComponentContracts()) {
+      byId.set(c.componentId, c);
+    }
+    for (const c of readSidecarContracts(rootDir)) {
       byId.set(c.componentId, c);
     }
     for (const c of latestSnapshot?.contracts || []) {

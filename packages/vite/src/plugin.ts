@@ -11,6 +11,12 @@ import {
   getReactBridgeClientCode,
 } from './react-bridge.js';
 import { createReactOumvController } from './react-rpc.js';
+import {
+  clearWorkspaceRuntimeDescriptor,
+  writeWorkspaceRuntimeDescriptor,
+} from './runtime-store.js';
+
+const SERVER_ATTACHED_SYM = Symbol.for('tokensafe.oumv.attached');
 
 export type TokensafeFrameworkMode = 'auto' | 'tokensafe-ui' | 'react';
 
@@ -46,22 +52,7 @@ function writeRuntimeDescriptor(
   rootDir: string,
   frontendEntry: Record<string, unknown>
 ): void {
-  try {
-    const tokensafeDir = path.join(rootDir, '.tokensafe');
-    fs.mkdirSync(tokensafeDir, { recursive: true });
-    const runtimeFile = path.join(tokensafeDir, 'runtime.json');
-    let existing: Record<string, any> = {};
-    if (fs.existsSync(runtimeFile)) {
-      try {
-        existing = JSON.parse(fs.readFileSync(runtimeFile, 'utf-8'));
-      } catch {}
-    }
-    existing.frontend = frontendEntry;
-    fs.writeFileSync(runtimeFile, JSON.stringify(existing, null, 2), 'utf-8');
-    try {
-      fs.chmodSync(runtimeFile, 0o600);
-    } catch {}
-  } catch {}
+  writeWorkspaceRuntimeDescriptor(rootDir, 'frontend', frontendEntry);
 }
 
 export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
@@ -98,6 +89,9 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
       if (!isServeCommand || !enableRpc || resolvedMode !== 'react') {
         return html;
       }
+      if (html.includes(REACT_BRIDGE_PUBLIC_PATH)) {
+        return html;
+      }
       return {
         html,
         tags: [
@@ -130,6 +124,8 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
 
     configureServer(server: ViteDevServer) {
       if (!enableRpc) return;
+      if ((server as any)[SERVER_ATTACHED_SYM]) return;
+      (server as any)[SERVER_ATTACHED_SYM] = true;
 
       const rootDir = server.config?.root || process.cwd();
       resolvedMode = resolveFrameworkMode(rootDir, options.framework);
@@ -232,6 +228,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
 
         if (server.httpServer) {
           server.httpServer.once('listening', emitDescriptor);
+          server.httpServer.once('close', () => clearWorkspaceRuntimeDescriptor(rootDir, 'frontend'));
         } else {
           emitDescriptor();
         }
@@ -649,7 +646,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         const port = server.config?.server?.port || 5173;
         writeRuntimeDescriptor(rootDir, {
           name: 'tokensafe-ui',
-          version: '0.1.18',
+          version: '0.1.19',
           url: `http://localhost:${port}/__oumv/rpc`,
           sessionToken,
           capabilities: {
@@ -662,6 +659,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
 
       if (server.httpServer) {
         server.httpServer.once('listening', writeDescriptor);
+        server.httpServer.once('close', () => clearWorkspaceRuntimeDescriptor(rootDir, 'frontend'));
       } else {
         writeDescriptor();
       }

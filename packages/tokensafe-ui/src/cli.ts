@@ -195,6 +195,29 @@ export async function runCli(argv = process.argv): Promise<void> {
       break;
     }
 
+    case 'dev': {
+      const { startZeroFootprintViteServer } = await import('@tokensafe-ui/vite');
+      const rootDir = args[0] || flags['root'] || process.cwd();
+      const port = flags['port'] ? Number(flags['port']) : undefined;
+      const host = flags['host'] === 'true' ? true : flags['host'];
+      const open = flags['open'] === 'true';
+      const server = await startZeroFootprintViteServer({
+        rootDir,
+        port: Number.isFinite(port) ? port : undefined,
+        host,
+        open,
+      });
+      await new Promise<void>((resolve) => {
+        const shutdown = async () => {
+          await server.close();
+          resolve();
+        };
+        process.once('SIGINT', shutdown);
+        process.once('SIGTERM', shutdown);
+      });
+      break;
+    }
+
     case 'help':
     case '--help':
     default: {
@@ -210,6 +233,7 @@ TokenSafe UI Agent CLI
 Deterministic Zero-Config Protocol Runner for AI Coding Agents
 
 Usage:
+  tokensafe-ui dev [rootDir] [--port=5173]              Start Vite+React DevServer with zero repo footprint
   tokensafe-ui mcp                                      Start MCP server over stdio (default)
   tokensafe-ui test-action <id> <action> [payload]      Verify state transition in <1ms
   tokensafe-ui test-effect <id> <effect> [payload]      Verify async effect & concurrency
