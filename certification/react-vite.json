@@ -1,0 +1,117 @@
+{
+  "adapterName": "frontend/react",
+  "framework": "react",
+  "specVersion": "1.1.0",
+  "fixtureVersion": 3,
+  "total": 18,
+  "passed": 15,
+  "failed": 3,
+  "skipped": 0,
+  "attainedLevel": 1,
+  "levels": {
+    "1": "passed",
+    "2": "failed",
+    "3": "failed"
+  },
+  "cases": [
+    {
+      "id": "handshake-negotiates-capabilities",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "unknown-session-is-rejected",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "unknown-method-is-jsonrpc-method-not-found",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "observe-l0-returns-pulse",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "observe-l1-returns-surface",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "observe-l2-returns-targeted-contract",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "observe-l3-returns-source-and-occ-version",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "get-source-returns-occ-token",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "observe-l4-returns-recorded-traces",
+      "level": 3,
+      "status": "failed",
+      "error": "verify precondition failed: -32008 No live browser tab connected to Vite DevServer. Open the app URL in a browser to verify React actions live."
+    },
+    {
+      "id": "understand-impact-resolves-target",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "understand-causality-after-execution",
+      "level": 3,
+      "status": "failed",
+      "error": "verify precondition failed: -32008 No live browser tab connected to Vite DevServer. Open the app URL in a browser to verify React actions live."
+    },
+    {
+      "id": "verify-returns-status-timings-and-scope",
+      "level": 2,
+      "status": "failed",
+      "error": "expected success, got error -32008: No live browser tab connected to Vite DevServer. Open the app URL in a browser to verify React actions live."
+    },
+    {
+      "id": "occ-conflict-rejected",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-without-version-rejected",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "syntax-guard-rejects-broken-code",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "path-traversal-blocked",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "missing-resource-rejected",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-returns-real-occ-version",
+      "level": 2,
+      "status": "passed"
+    }
+  ],
+  "generatedAt": "2026-11-26T14:54:13.258Z",
+  "environment": {
+    "transport": "stdio",
+    "browser": false,
+    "note": "headless run of the real controller (packages/vite/scripts/oumv-stdio.mjs); L2 verify and L3 traces/causality need an open browser tab and fail without one"
+  }
+}

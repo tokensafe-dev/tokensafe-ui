@@ -241,6 +241,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
               ? addr.port
               : server.config?.server?.port || 5173;
           writeRuntimeDescriptor(rootDir, {
+            type: 'frontend',
             name: 'react',
             version: reactRpc.reactVersion,
             url: `http://localhost:${boundPort}/__oumv/rpc`,
