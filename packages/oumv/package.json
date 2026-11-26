@@ -1,6 +1,7 @@
 {
   "name": "@tokensafe-ui/oumv",
   "version": "0.3.1",
+  "license": "Apache-2.0",
   "description": "Native OUMV Protocol Adapter for tokensafe-ui runtime",
   "type": "module",
   "main": "./dist/index.cjs",

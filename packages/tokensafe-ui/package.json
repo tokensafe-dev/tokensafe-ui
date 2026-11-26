@@ -1,6 +1,7 @@
 {
   "name": "tokensafe-ui",
   "version": "0.1.22",
+  "license": "Apache-2.0",
   "description": "Deterministic, token-efficient frontend reactive micro-framework for AI coding agents",
   "type": "module",
   "files": [

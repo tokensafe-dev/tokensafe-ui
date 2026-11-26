@@ -1,6 +1,7 @@
 {
   "name": "@tokensafe-ui/observer",
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "description": "Semantic UI projector and compact accessibility state extractor (<150 tokens)",
   "type": "module",
   "main": "./dist/index.cjs",

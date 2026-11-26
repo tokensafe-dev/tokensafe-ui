@@ -1,8 +1,8 @@
 # tokensafe-ui
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tokensafe-dev/tokensafe-ui/blob/main/LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://github.com/tokensafe-dev/tokensafe-ui/blob/main/LICENSE)
 [![npm version](https://img.shields.io/npm/v/tokensafe-ui.svg)](https://www.npmjs.com/package/tokensafe-ui)
-[![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.3-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
+[![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.4--canonical-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
 > **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 and Vue 3, plus a zero-footprint Vite bridge. A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
 
@@ -21,11 +21,11 @@ Traditional frontend frameworks (React, Vue, Angular) were designed for human de
 - **Invisible Causality**: The agent cannot see *why* an element is in a given state or what will break if a state changes.
 - **Fragile Verification Loops**: Verifying a minor UI mutation requires launching heavy, slow browser automation suites.
 
-**`tokensafe-ui`** establishes an isomorphic reactive runtime and natively implements **[OUMV: The Universal Agent-UI Protocol](https://github.com/tokensafe-dev/oumv)** (Observe · Understand · Mutate · Verify) to close the autonomous feedback loop between AI agents and user interfaces.
+**`tokensafe-ui`** establishes an isomorphic reactive runtime and natively implements **[OUMV: the Universal Agent-Runtime Protocol (UARP), Frontend Profile](https://github.com/tokensafe-dev/oumv)** (Observe · Understand · Mutate · Verify) to close the autonomous feedback loop between AI agents and user interfaces.
 
 ---
 
-## OUMV: The Universal Agent-UI Protocol Architecture
+## OUMV Frontend Profile Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -345,4 +345,8 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
 
 ## License
 
-[MIT](LICENSE) © 2026 TokenSafe & Contributors
+[Apache-2.0](LICENSE) © 2026 TokenSafe & Contributors
+
+`packages/create-tokensafe-ui` remains MIT: that grant was issued before the repository moved
+to Apache-2.0 and cannot be revoked. "OUMV Certified" and the certification badge are marks
+and are not licensed by either grant.

@@ -130,7 +130,7 @@ export default function App() {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it.runIf(hasSiblingOumv)('passes @oumv/conformance runConformanceSuite at Level 3 (13/13)', async () => {
+  it.runIf(hasSiblingOumv)('passes @oumv/conformance runConformanceSuite at Level 3 (full fixture set)', async () => {
     const { runConformanceSuite } = require(CONFORMANCE_CJS);
     const { server, handlers } = createInstrumentedFakeServer();
     const controller = createReactOumvController({ rootDir: tmpDir, server });

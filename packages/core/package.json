@@ -1,6 +1,7 @@
 {
   "name": "@tokensafe-ui/core",
   "version": "0.1.17",
+  "license": "Apache-2.0",
   "description": "Zero-trap signals reactivity, component contract, and DOM runtime",
   "type": "module",
   "main": "./dist/index.cjs",
