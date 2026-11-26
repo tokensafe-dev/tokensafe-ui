@@ -72,6 +72,7 @@ try {
     fixtureFile: process.env.OUMV_CERT_FIXTURE_FILE || 'src/EditTarget.jsx',
     missingFile: 'src/Missing.jsx',
     editTarget: process.env.OUMV_CERT_EDIT_TARGET || 'src/EditTarget.jsx',
+    newFile: process.env.OUMV_CERT_NEW_FILE || 'src/Created_New.jsx',
     editContent: 'export const value = 42;\n',
     brokenContent: 'export function Broken( {\n',
     l2Target: process.env.OUMV_CERT_L2_TARGET || 'App',

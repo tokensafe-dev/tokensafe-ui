@@ -103,6 +103,7 @@ describe('@tokensafe-ui/vite React Adapter — OUMV fixture certification', () =
       fixtureFile: 'src/Counter.tsx',
       missingFile: 'src/Missing.tsx',
       editTarget: 'src/EditTarget.tsx',
+      newFile: 'src/Created_New.tsx',
       editVersion: sha('export const value = 41;\n'),
       editContent: EDIT_CONTENT,
       brokenContent: BROKEN_CONTENT,

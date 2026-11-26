@@ -2,9 +2,9 @@
   "adapterName": "frontend/react",
   "framework": "react",
   "specVersion": "1.1.0",
-  "fixtureVersion": 4,
-  "total": 18,
-  "passed": 15,
+  "fixtureVersion": 5,
+  "total": 20,
+  "passed": 17,
   "failed": 3,
   "skipped": 0,
   "attainedLevel": 1,
@@ -106,12 +106,22 @@
       "id": "apply-edit-returns-real-occ-version",
       "level": 2,
       "status": "passed"
+    },
+    {
+      "id": "create-new-file",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "create-existing-file-rejected",
+      "level": 2,
+      "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-26T15:24:19.744Z",
+  "generatedAt": "2026-11-26T17:01:51.661Z",
   "environment": {
     "transport": "stdio",
     "browser": false,
-    "note": "headless run of the real controller (packages/vite/scripts/oumv-stdio.mjs); L2 verify and L3 traces/causality need an open browser tab and fail without one. With a connected tab the same controller passes all 18 cases (agent-dom packages/vite/test/react-conformance.test.ts)."
+    "note": "headless run of the real controller (packages/vite/scripts/oumv-stdio.mjs); L2 verify and L3 traces/causality need an open browser tab and fail without one. With a connected tab the same controller passes all 20 cases (react-vite-browser.json)."
   }
 }

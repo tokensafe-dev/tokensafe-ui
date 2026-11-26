@@ -2,9 +2,9 @@
   "adapterName": "frontend/react",
   "framework": "react",
   "specVersion": "1.1.0",
-  "fixtureVersion": 4,
-  "total": 18,
-  "passed": 18,
+  "fixtureVersion": 5,
+  "total": 20,
+  "passed": 20,
   "failed": 0,
   "skipped": 0,
   "attainedLevel": 3,
@@ -103,9 +103,19 @@
       "id": "apply-edit-returns-real-occ-version",
       "level": 2,
       "status": "passed"
+    },
+    {
+      "id": "create-new-file",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "create-existing-file-rejected",
+      "level": 2,
+      "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-26T15:29:41.066Z",
+  "generatedAt": "2026-11-26T17:01:58.221Z",
   "environment": {
     "transport": "http",
     "profile": "frontend",
