@@ -8,6 +8,7 @@ import {
   getGlobalRuntimeDescriptorPath,
   isTokensafeIgnoredInRepo,
   tokensafeReact,
+  tokensafeUi,
   writeWorkspaceRuntimeDescriptor,
 } from '../src/index.js';
 import { createReactOumvController } from '../src/react-rpc.js';
@@ -103,6 +104,25 @@ describe('@tokensafe-ui/vite Zero-Footprint Vite+React Mode', () => {
     expect(l2.body.result.data.contracts).toHaveLength(1);
     expect(l2.body.result.data.contracts[0].description).toBe('Zero-footprint sidecar contract for App');
     expect(l2.body.result.evidence.provenance).toBe('contract');
+  });
+
+  it('mounts no OUMV endpoints for a Vue app (no adapter yet)', () => {
+    const plugin = tokensafeUi();
+    (plugin as any).configResolved({ command: 'serve', root: tmpRepo });
+    let middlewareCount = 0;
+    const fakeServer: any = {
+      config: { root: tmpRepo, server: { port: 5173 } },
+      ws: { on: () => {}, send: () => {} },
+      middlewares: { use: () => middlewareCount++ },
+      httpServer: null,
+    };
+    fs.writeFileSync(
+      path.join(tmpRepo, 'package.json'),
+      JSON.stringify({ name: 'vue-app', dependencies: { vue: '^3.5.0' } }),
+      'utf-8'
+    );
+    (plugin.configureServer as Function)(fakeServer);
+    expect(middlewareCount).toBe(0);
   });
 
   it('deduplicates multiple tokensafeReact plugin instances cleanly', () => {

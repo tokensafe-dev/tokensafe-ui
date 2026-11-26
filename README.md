@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/tokensafe-ui.svg)](https://www.npmjs.com/package/tokensafe-ui)
 [![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.4--canonical-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
-> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 and Vue 3, plus a zero-footprint Vite bridge. A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
+> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 with a zero-footprint Vite bridge (certified Level 3 in a browser), plus a programmatic Vue 3 adapter that is not yet wired into Vite or certified. A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
 
 Part of the **[TokenSafe](https://github.com/tokensafe-dev)** autonomous agent developer ecosystem.
 
@@ -243,8 +243,11 @@ Connects React components, hooks, and stores to OUMV:
 - **React Context**: `connectContext(contextValue, { name: 'authContext' })`
 - **Static Discovery**: `scanSourceForComponents(source, filePath)` extracts components and routes directly from TSX/JSX AST via Babel without running a headless browser.
 
-### 2. Vue Adapter (`tokensafe-ui/vue`)
-Connects Vue 3 Composition API components and Pinia stores to OUMV.
+### 2. Vue Adapter (programmatic, `@tokensafe-ui/oumv/vue`)
+Registers Vue 3 components and Pinia stores manually for the in-process adapter.
+There is **no Vite integration and no conformance report yet**: a Vue app served by
+the plugin exposes no OUMV endpoints, so agents should use static analysis for Vue
+until that lands.
 
 ### 3. Vite Dev-Server Bridge (`tokensafe-ui/vite`)
 Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.tokensafe/runtime.json`, mode `0600`) in dev mode.
@@ -336,7 +339,8 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
   - [x] Observer L3 (Isolated Source) & L4 (Runtime Traces).
 - [ ] **P3: Ecosystem & Benchmarking**
   - [x] AUI-Bench autonomous agent benchmark suite.
-  - [x] React / Vue adapters for the OUMV protocol.
+  - [x] React adapter for the OUMV protocol (Level 3, certified in a real browser).
+- [ ] Vue adapter: Vite integration and certification.
   - [x] Isomorphic SSR hydration runtime (`renderToString` + `hydrate`).
   - [x] Two-way form binding helpers (`bind`).
   - [x] Scaffolding CLI (`create-tokensafe-ui`).

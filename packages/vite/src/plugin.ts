@@ -267,6 +267,11 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         return;
       }
 
+      // No OUMV adapter for Vue yet. Mounting the legacy native runtime here would
+      // answer with a SolidJS identity (runtimeInfo.framework) and pre-envelope
+      // payloads, i.e. advertise a capability we cannot certify — so serve nothing.
+      if (resolvedMode === 'vue') return;
+
       // Handle custom client snapshot events from browser HMR
       const handleSnapshot = (data: any) => {
         if (data && typeof data.snapshot === 'string') {
