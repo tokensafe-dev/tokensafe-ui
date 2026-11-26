@@ -2,7 +2,7 @@
   "adapterName": "frontend/react",
   "framework": "react",
   "specVersion": "1.1.0",
-  "fixtureVersion": 3,
+  "fixtureVersion": 4,
   "total": 18,
   "passed": 15,
   "failed": 3,
@@ -108,7 +108,7 @@
       "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-26T14:54:13.258Z",
+  "generatedAt": "2026-11-26T14:56:02.635Z",
   "environment": {
     "transport": "stdio",
     "browser": false,
