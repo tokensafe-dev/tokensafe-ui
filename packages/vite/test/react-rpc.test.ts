@@ -127,7 +127,8 @@ export default function App() {
       params: { level: 'L1' },
     });
     expect(l1.body.result.format).toBe('yaml');
-    expect(l1.body.result.payload).toContain('Counter');
+    // §4.6: `payload` is a deprecated alias; the controller emits `data` only.
+    expect(l1.body.result.payload).toBeUndefined();
     expect(l1.body.result.data.components.some((c: any) => c.name === 'Counter')).toBe(true);
     expect(JSON.stringify(l1.body.result).length).toBeLessThan(2000);
 
@@ -382,7 +383,8 @@ export default function App() {
 
     const l1Yaml = await controller.handleRpcPayload({ id: 11, method: 'oumv/observe', params: { level: 'L1' } });
     expect(l1Yaml.body.result.format).toBe('yaml');
-    expect(l1Yaml.body.result.payload).toContain('btn-annual');
+    expect(l1Yaml.body.result.payload).toBeUndefined();
+    expect(JSON.stringify(l1Yaml.body.result.data)).toContain('btn-annual');
     expect(JSON.stringify(l1Yaml.body.result).length).toBeLessThan(2000);
 
     const l4 = await controller.handleRpcPayload({ id: 2, method: 'oumv/observe', params: { level: 'L4' } });
@@ -408,5 +410,39 @@ export default function App() {
     expect(resolveFrameworkMode(tmpDir, 'auto')).toBe('tokensafe-ui');
     const plugin = tokensafeUi();
     expect(plugin.name).toBe('tokensafe-ui');
+  });
+
+  it('slices class methods by bare name and by Class.method', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'store.ts'),
+      [
+        'export class Store {', // 1
+        '  toggleTask(id: string) {', // 2
+        '    return id;', // 3
+        '  }', // 4
+        '}', // 5
+        '', // 6
+        'export function helper() {', // 7
+        '  return 1;', // 8
+        '}', // 9
+      ].join('\n'),
+      'utf-8'
+    );
+    const adapter = createReactOumvController({ rootDir: tmpDir }).asOumvAdapter();
+
+    const bare = await adapter.getSource({ path: 'src/store.ts', symbol: 'toggleTask' });
+    expect(bare.startLine).toBe(2);
+    expect(bare.endLine).toBe(4);
+    expect(bare.source).toContain('return id');
+
+    const qualified = await adapter.getSource({ path: 'src/store.ts', symbol: 'Store.toggleTask' });
+    expect(qualified.source).toBe(bare.source);
+
+    const wholeClass = await adapter.getSource({ path: 'src/store.ts', symbol: 'Store' });
+    expect(wholeClass.startLine).toBe(1);
+    expect(wholeClass.endLine).toBe(5);
+
+    const global = await adapter.getSource({ path: 'src/store.ts', symbol: 'helper' });
+    expect(global.source).toContain('return 1');
   });
 });

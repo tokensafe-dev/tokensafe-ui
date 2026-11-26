@@ -241,7 +241,31 @@ function extractSymbolRange(source: string, symbolName: string): { source: strin
   try {
     const ast = parser.parse(source, { sourceType: 'module', plugins: ['jsx', 'typescript'] });
     const lines = source.split('\n');
+    const slice = (startLine: number, endLine: number) => ({
+      source: lines.slice(startLine - 1, endLine).join('\n'),
+      startLine,
+      endLine,
+    });
+    const classMatches = (node: any): { source: string; startLine: number; endLine: number } | null => {
+      const declaration =
+        node.type === 'ExportNamedDeclaration' || node.type === 'ExportDefaultDeclaration' ? node.declaration : node;
+      if (!declaration || (declaration.type !== 'ClassDeclaration' && declaration.type !== 'ClassExpression')) return null;
+      if (!declaration.loc) return null;
+      const className: string = declaration.id?.name || '';
+      if (className && className === symbolName) return slice(declaration.loc.start.line, declaration.loc.end.line);
+      for (const member of declaration.body?.body || []) {
+        const key = member.key;
+        const memberName = key?.type === 'Identifier' ? key.name : key?.type === 'StringLiteral' ? key.value : undefined;
+        // `toggleTask` and `TaskManagerStore.toggleTask` both address a method.
+        if (member.loc && memberName && (memberName === symbolName || `${className}.${memberName}` === symbolName)) {
+          return slice(member.loc.start.line, member.loc.end.line);
+        }
+      }
+      return null;
+    };
     for (const node of ast.program.body) {
+      const member = classMatches(node);
+      if (member) return member;
       let name: string | undefined;
       if (node.type === 'FunctionDeclaration' && node.id) {
         name = node.id.name;
@@ -484,7 +508,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
     const result = out?.body?.result;
     if (!result || typeof result !== 'object' || Array.isArray(result)) return out;
     if (method === 'oumv/observe') {
-      const { level, format, data, payload, tokenEstimate, evidence, ...rest } = result as Record<string, any>;
+      const { level, format, data, tokenEstimate, evidence, ...rest } = result as Record<string, any>;
       return {
         ...out,
         body: {
@@ -496,7 +520,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
             // additionalProperties restriction there), so browser/static metadata
             // lives there instead of beside the envelope.
             data: { ...(data && typeof data === 'object' ? data : {}), ...rest },
-            ...(payload !== undefined ? { payload } : {}),
+            // `payload` is the deprecated §4.6 alias for `data`; emitting both
+            // doubled every observation without adding information.
             ...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
             ...(evidence ? { evidence } : {}),
           },

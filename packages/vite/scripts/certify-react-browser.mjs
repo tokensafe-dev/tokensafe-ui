@@ -82,6 +82,14 @@ try {
   const markersFile = path.join(os.tmpdir(), `oumv-browser-markers-${process.pid}.json`);
   fs.writeFileSync(markersFile, JSON.stringify(markers, null, 2));
 
+  // The create fixture asserts "the file must not exist yet": a leftover from a
+  // previous certification run would turn it into a -32001 conflict.
+  const createdFile = path.resolve(root, markers.newFile);
+  const cleanCreated = () => {
+    if (createdFile.startsWith(path.resolve(root) + path.sep)) fs.rmSync(createdFile, { force: true });
+  };
+  cleanCreated();
+
   fs.rmSync(reportPath, { force: true }); // a stale report must never pass for this run
   const code = await run(process.execPath, [
     certifyPath,
@@ -105,6 +113,7 @@ try {
     process.env.OUMV_CERT_TIMEOUT || '30000',
   ]);
   fs.rmSync(markersFile, { force: true });
+  cleanCreated();
 
   if (fs.existsSync(reportPath)) {
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));

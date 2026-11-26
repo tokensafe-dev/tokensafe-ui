@@ -258,15 +258,15 @@ Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.to
 
 ### 1. Conformance: Level 3 in a real browser
 
-`certification/react-vite-browser.json` — **18/18 cases, Level 3**, produced by
+`certification/react-vite-browser.json` — **20/20 cases (fixtures v5), Level 3**, produced by
 `packages/vite/scripts/certify-react-browser.mjs`: it starts the committed
 `certification/app` through Vite, opens it in headless Chrome, waits for the bridge and
 runs `oumv-certify --url` against the dev server. `oumv/verify` dispatches real synthetic
 events, and L4 traces are the ones the bridge actually recorded.
 
 The offline stdio run (`certification/react-vite.json`) attains Level 1 for a reason worth
-stating: `oumv/verify` answers `-32008` without a browser tab and L4 has no traces, so
-both failures are named in the report instead of being hidden.
+stating: `oumv/verify` answers `-32008` without a browser tab and L4/causality have no
+traces, so all three failures are named in the report instead of being hidden.
 
 ### 2. Adapter latency (measured on `certification/app`)
 
@@ -280,14 +280,28 @@ The first two were dominated by importing the 216 KB MCP bundle just to resolve 
 the controller now carries a local realpath jail and imports the edit engine only for
 edits, warming it in the background at startup.
 
-### 3. Agent-level benchmark: not published
+### 3. Agent-level benchmark: measured
+
+3 regression tasks × 3 runs × 2 arms on `deepseek-chat` (temperature 0). Each session starts
+from a throwaway copy of the sandbox and the real 12-assertion oracle is re-run after every
+step. Both arms get the same search/read/write/command tools and the same bug report
+(including a repro); the `oumv` arm additionally gets `observe`/`getSource`/`applyEdit` from
+the shipped static controller over stdio. Tokens and cost are the provider's `usage` payload.
+
+| Arm | Solved | Mean steps | Mean input tokens | Mean output tokens | Cost |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `baseline` | 9/9 | 4.8 | 17,541 | 1,574 | $0.0316 |
+| `oumv` | 9/9 | 3.4 | 7,938 | 1,465 | $0.0235 |
+| **Delta** | — | **−29.2%** | **−54.7%** | −6.9% | **−25.6%** |
+
+Deterministic adapter numbers (no model): `getSource` on one symbol returns **634 chars** where
+the file is **4,483**; `getSource` answers in **1.0 ms** against **874 ms** for the oracle run;
+a stale `expectedVersion` is rejected with `-32001`. Per-task table, method and limits:
+[benchmarks/REACT_AGENT_MATRIX.md](benchmarks/REACT_AGENT_MATRIX.md).
 
 The earlier AER scorecard (7.62×/21.0×) was computed from **replay traces**, not from a
-measured agent run, so it is withdrawn from this README. The replay harness still runs
-(`pnpm aub:replay`) and is useful for regression-checking the workflow, but it cannot
-support a productivity claim. A measured three-arm run (baseline / tools / OUMV with the
-DeepSeek driver in `tokensafe/src/bench`) is the next step; until it exists, no AER number
-is quoted here.
+measured agent run, so it stays withdrawn: the replay harness (`pnpm aub:replay`) is a
+regression check, not a productivity claim.
 
 ### Empirical Case Study: Autonomous MCP Debugging in Order Checkout (v0.2.0)
 
