@@ -44,8 +44,14 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish create-tokensafe-ui CLI
-        run: pnpm --filter create-tokensafe-ui publish --access public --no-git-checks
+      - name: Publish create-tokensafe-ui CLI (only when its version is new)
+        run: |
+          VERSION=$(node -p "require('./packages/create-tokensafe-ui/package.json').version")
+          if npm view "create-tokensafe-ui@$VERSION" version >/dev/null 2>&1; then
+            echo "create-tokensafe-ui@$VERSION is already published — skipping"
+          else
+            pnpm --filter create-tokensafe-ui publish --access public --no-git-checks
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
