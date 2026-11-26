@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/tokensafe-dev/tokensafe-ui/blob/main/LICENSE)
 [![npm version](https://img.shields.io/npm/v/tokensafe-ui.svg)](https://www.npmjs.com/package/tokensafe-ui)
-[![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.1-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
+[![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.3-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
-> **The native reactive micro-framework and runtime for AI coding agents implementing OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
+> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 and Vue 3, plus a zero-footprint Vite bridge. A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
 
 Part of the **[TokenSafe](https://github.com/tokensafe-dev)** autonomous agent developer ecosystem.
 
@@ -233,7 +233,7 @@ batch(() => {
 
 ## Frontend Adapters: React & Vue Retrofit
 
-`tokensafe-ui` acts as the unified frontend repository for the **OUMV** protocol. In addition to its native reactive engine, it provides zero-rewrite retrofit adapters for existing React and Vue applications:
+`tokensafe-ui` is the **OUMV Frontend Profile accumulator**: adapters for React and Vue plus the Vite bridge, with zero-rewrite retrofit adapters for existing React and Vue applications:
 
 ### 1. React Adapter (`tokensafe-ui/react`)
 Connects React components, hooks, and stores to OUMV:
