@@ -235,7 +235,7 @@ batch(() => {
 
 `tokensafe-ui` acts as the unified frontend repository for the **OUMV** protocol. In addition to its native reactive engine, it provides zero-rewrite retrofit adapters for existing React and Vue applications:
 
-### 1. React Adapter (`@tokensafe-ui/oumv/react`)
+### 1. React Adapter (`tokensafe-ui/react`)
 Connects React components, hooks, and stores to OUMV:
 - **Zustand**: `connectZustand(useCartStore, { name: 'cart' })`
 - **Redux / Redux Toolkit**: `connectRedux(store, { actionCreators: { ... } })`
@@ -243,10 +243,10 @@ Connects React components, hooks, and stores to OUMV:
 - **React Context**: `connectContext(contextValue, { name: 'authContext' })`
 - **Static Discovery**: `scanSourceForComponents(source, filePath)` extracts components and routes directly from TSX/JSX AST via Babel without running a headless browser.
 
-### 2. Vue Adapter (`@tokensafe-ui/oumv/vue`)
+### 2. Vue Adapter (`tokensafe-ui/vue`)
 Connects Vue 3 Composition API components and Pinia stores to OUMV.
 
-### 3. Vite Dev-Server Bridge (`@tokensafe-ui/vite`)
+### 3. Vite Dev-Server Bridge (`tokensafe-ui/vite`)
 Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.tokensafe/runtime.json`, mode `0600`) in dev mode.
 
 ---
@@ -328,7 +328,7 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
 - [x] **P2: Resilient Mutations & Optimistic Concurrency Control**
   - [x] Symbol-level mutation manager with OCC versioning (`version`, `expectedVersion`, atomic rollback).
   - [x] Automated post-edit type-checking and formatting guard.
-  - [x] Native OUMV Protocol Adapter (`@tokensafe-ui/oumv`).
+  - [x] Native OUMV Protocol Adapter (`tokensafe-ui/oumv`).
   - [x] Observer L3 (Isolated Source) & L4 (Runtime Traces).
 - [ ] **P3: Ecosystem & Benchmarking**
   - [x] AUI-Bench autonomous agent benchmark suite.

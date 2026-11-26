@@ -233,7 +233,7 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
 - [x] **P2: Resilient Mutations & Optimistic Concurrency Control**
   - [x] Symbol-level mutation manager with OCC versioning (`version`, `expectedVersion`, atomic rollback).
   - [x] Automated post-edit type-checking and formatting guard.
-  - [x] Native OUMV Protocol Adapter (`@tokensafe-ui/oumv`).
+  - [x] Native OUMV Protocol Adapter (`tokensafe-ui/oumv`).
   - [x] Observer L3 (Isolated Source) & L4 (Runtime Traces).
 - [ ] **P3: Ecosystem & Benchmarking**
   - [ ] AUI-Bench autonomous agent benchmark suite.
