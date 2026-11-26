@@ -274,9 +274,39 @@ function extractSymbolRange(source: string, symbolName: string): { source: strin
   return null;
 }
 
+/**
+ * Realpath jail for every file operation the controller performs. Same semantics
+ * as the MCP guard, kept local on purpose: importing the MCP bundle just to resolve
+ * a path cost ~200-400 ms on the first getSource/observe L3.
+ */
+function validateProjectPath(inputPath: string, projectRoot: string): string {
+  let canonicalRoot = path.resolve(projectRoot);
+  try {
+    if (fs.existsSync(canonicalRoot)) canonicalRoot = fs.realpathSync(canonicalRoot);
+  } catch {}
+  let resolved = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(canonicalRoot, inputPath);
+  try {
+    if (fs.existsSync(resolved)) resolved = fs.realpathSync(resolved);
+  } catch {}
+  const rootWithSep = canonicalRoot.endsWith(path.sep) ? canonicalRoot : canonicalRoot + path.sep;
+  if (resolved !== canonicalRoot && !resolved.startsWith(rootWithSep)) {
+    throw new Error(
+      `Security Violation: Path traversal blocked. Target '${inputPath}' escapes workspace root '${projectRoot}'.`
+    );
+  }
+  return resolved;
+}
+
 export function createReactOumvController(options: ReactRpcOptions) {
   const { rootDir, server } = options;
   const reactVersion = readReactVersion(rootDir);
+  // applyEdit is the only path that needs the edit engine; warm it in the
+  // background so the first mutation does not pay the bundle import.
+  setTimeout(() => {
+    void loadMcpTools().catch(() => {});
+  }, 0);
   const traces: Array<OumvStreamTrace & Record<string, any>> = [];
   const MAX_TRACES = 128;
   let traceSeq = 0;
@@ -993,7 +1023,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               break;
             }
             try {
-              const maybe = (await loadMcpTools()).validateWorkspacePath(candidate, rootDir);
+              const maybe = validateProjectPath(candidate, rootDir);
               if (fs.existsSync(maybe) && fs.statSync(maybe).isFile()) {
                 relPath = candidate;
                 cleanName = cname;
@@ -1004,7 +1034,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
           let resolved: string;
           try {
-            resolved = (await loadMcpTools()).validateWorkspacePath(relPath, rootDir);
+            resolved = validateProjectPath(relPath, rootDir);
           } catch (err: any) {
             return rpcError(id, ERR_SECURITY, err.message);
           }
@@ -1225,7 +1255,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
         const symbol = String(params?.symbol || '').trim();
         let resolved: string;
         try {
-          resolved = (await loadMcpTools()).validateWorkspacePath(relPath, rootDir);
+          resolved = validateProjectPath(relPath, rootDir);
         } catch (err: any) {
           return rpcError(id, ERR_SECURITY, err.message);
         }
@@ -1281,7 +1311,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
         let resolved: string;
         try {
-          resolved = (await loadMcpTools()).validateWorkspacePath(relPath, rootDir);
+          resolved = validateProjectPath(relPath, rootDir);
         } catch (err: any) {
           return rpcError(id, ERR_SECURITY, err.message);
         }
