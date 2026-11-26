@@ -15,6 +15,7 @@ import {
   getReactBridgeClientCode,
 } from './react-bridge.js';
 import { createReactOumvController } from './react-rpc.js';
+import { attachStreamTransports } from './streams.js';
 import {
   clearWorkspaceRuntimeDescriptor,
   writeWorkspaceRuntimeDescriptor,
@@ -148,6 +149,21 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
           server,
         });
 
+        const isAuthorized = (req: any): boolean => {
+          const providedToken = String(
+            req.headers?.['x-oumv-session-token'] ||
+              (typeof req.headers?.authorization === 'string' &&
+              req.headers.authorization.toLowerCase().startsWith('bearer ')
+                ? req.headers.authorization.slice(7).trim()
+                : '') ||
+              ''
+          );
+          return !(
+            (options.requireAuth && providedToken !== sessionToken) ||
+            (providedToken && providedToken !== sessionToken)
+          );
+        };
+
         const handleReactRpc = async (req: any, res: any) => {
           if (req.method === 'OPTIONS') {
             res.statusCode = 204;
@@ -163,19 +179,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
             return;
           }
 
-          const providedToken = String(
-            req.headers?.['x-oumv-session-token'] ||
-              (typeof req.headers?.authorization === 'string' &&
-              req.headers.authorization.toLowerCase().startsWith('bearer ')
-                ? req.headers.authorization.slice(7).trim()
-                : '') ||
-              ''
-          );
-
-          if (
-            (options.requireAuth && providedToken !== sessionToken) ||
-            (providedToken && providedToken !== sessionToken)
-          ) {
+          if (!isAuthorized(req)) {
             res.statusCode = 401;
             res.setHeader('Content-Type', 'application/json');
             res.end(
@@ -217,6 +221,19 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         server.middlewares.use('/__tokensafe_ui/rpc', handleReactRpc);
         server.middlewares.use('/__agent_dom/rpc', handleReactRpc);
 
+        const detachStreams = attachStreamTransports({
+          middlewares: server.middlewares,
+          httpServer: server.httpServer,
+          ssePaths: ['/__oumv/events', '/__tokensafe_ui/events', '/__agent_dom/events'],
+          wsPaths: ['/__oumv/rpc', '/__tokensafe_ui/rpc', '/__agent_dom/rpc'],
+          authorize: isAuthorized,
+          getTracesSince: reactRpc.getTracesSince,
+          handleRpcPayload: reactRpc.handleRpcPayload,
+        });
+        if (server.httpServer) {
+          server.httpServer.once('close', detachStreams);
+        }
+
         const emitDescriptor = () => {
           const addr = server.httpServer?.address();
           const boundPort =
@@ -227,9 +244,12 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
             name: 'react',
             version: reactRpc.reactVersion,
             url: `http://localhost:${boundPort}/__oumv/rpc`,
+            sseUrl: `http://localhost:${boundPort}/__oumv/events`,
+            wsUrl: `ws://localhost:${boundPort}/__oumv/rpc`,
             sessionToken,
             capabilities: {
               observeLevels: ['L0', 'L1', 'L2', 'L3', 'L4'],
+              transports: ['http', 'sse', 'ws'],
               causality: true,
               occ: true,
               verify: true,

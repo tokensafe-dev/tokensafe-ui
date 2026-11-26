@@ -129,7 +129,8 @@ describe('@tokensafe-ui/vite Zero-Footprint Vite+React Mode', () => {
     };
     (p1.configureServer as Function)(fakeServer);
     const countAfterFirst = middlewareCount;
-    expect(countAfterFirst).toBe(3);
+    // Three RPC aliases (HTTP POST) + three SSE aliases (§2.3); WS is an upgrade listener.
+    expect(countAfterFirst).toBe(6);
 
     (p2.configureServer as Function)(fakeServer);
     expect(middlewareCount).toBe(countAfterFirst);

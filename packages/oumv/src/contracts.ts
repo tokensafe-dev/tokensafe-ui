@@ -115,3 +115,22 @@ export function listOUMVComponentContracts(): OumvContractRecord[] {
 export function resetOUMVComponentContracts(): void {
   registry.clear();
 }
+
+/**
+ * One L4 trace entry as it appears on the streaming transports (spec §2.3/§2.4):
+ * `id:` of SSE `trace` events is `seq`, and WS pushes it as
+ * `notifications/oumv.trace` params.trace.
+ */
+export interface OumvStreamTrace {
+  /** Monotonic per-runtime sequence (SSE `Last-Event-ID`). */
+  seq: number;
+  /** HTTP method for backend traces, RPC method or browser action for frontend ones. */
+  method: string;
+  path: string;
+  route: string;
+  handler: string;
+  statusCode: number;
+  durationMs: number;
+  /** RFC3339 timestamp. */
+  timestamp: string;
+}

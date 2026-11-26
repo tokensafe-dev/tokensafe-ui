@@ -199,6 +199,59 @@ export default function App() {
     expect(verify.body.error.code).toBe(-32008);
   });
 
+  it('handles JSON-RPC batches and per-call traces for the streaming transports', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+
+    const batch = await controller.handleRpcPayload([
+      { jsonrpc: '2.0', id: 1, method: 'oumv/handshake' },
+      { jsonrpc: '2.0', method: 'oumv/observe', params: { level: 'L0' } }, // notification
+      { jsonrpc: '2.0', id: 2, method: 'oumv/observe', params: { level: 'L1' } },
+      'not-an-object',
+    ]);
+
+    expect(batch.statusCode).toBe(200);
+    expect(batch.body).toHaveLength(3);
+    expect(batch.body[0].id).toBe(1);
+    expect(batch.body[1].id).toBe(2);
+    expect(batch.body[2].error.code).toBe(-32600);
+    expect(batch.body[0].result.sessionId).toMatch(/^sess-/);
+
+    const expired = await controller.handleRpcPayload({
+      id: 3,
+      method: 'oumv/observe',
+      params: { level: 'L0', sessionId: 'sess-missing' },
+    });
+    expect(expired.body.error.code).toBe(-32011);
+    expect(expired.body.error.data.reason).toBe('session_expired');
+  });
+
+  it('normalizes browser traces for SSE ids and WS cursors without losing L4 fields', () => {
+    const handlers: Record<string, Function> = {};
+    const controller = createReactOumvController({
+      rootDir: tmpDir,
+      server: { ws: { on: (ev: string, fn: Function) => (handlers[ev] = fn), send: () => {} } } as any,
+    });
+
+    handlers['oumv:react-trace']({ type: 'fetch', method: 'GET', url: '/api/stats', status: 200, durationMs: 12 });
+    handlers['oumv:react-trace']({ type: 'action', action: 'click', target: 'btn-inc', statusCode: 500, durationMs: 3 });
+
+    const traces = controller.getTraces();
+    expect(traces).toHaveLength(2);
+    expect(traces[0]).toMatchObject({
+      seq: 1,
+      method: 'GET',
+      path: '/api/stats',
+      route: '/api/stats',
+      statusCode: 200,
+      durationMs: 12,
+    });
+    expect(traces[0].url).toBe('/api/stats');
+    expect(traces[1]).toMatchObject({ seq: 2, method: 'click', path: 'btn-inc', statusCode: 500 });
+    expect(traces.every((trace) => trace.timestamp.includes('T'))).toBe(true);
+    expect(controller.getTracesSince(1)).toHaveLength(1);
+    expect(controller.getTracesSince(2)).toHaveLength(0);
+  });
+
   it('dispatches live browser snapshot, traces, and verify over Vite WS', async () => {
     const handlers: Record<string, Function> = {};
     const fakeServer: any = {

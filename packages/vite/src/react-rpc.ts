@@ -6,7 +6,7 @@ import * as parser from '@babel/parser';
 // Static discovery + contracts are solid-free entry points: importing the oumv
 // index here would evaluate the native runtime for a React-only project.
 import { scanProjectStaticResources, scanSourceForComponents } from '@tokensafe-ui/oumv/static';
-import { listOUMVComponentContracts, type OumvContractRecord } from '@tokensafe-ui/oumv/contracts';
+import { listOUMVComponentContracts, type OumvContractRecord, type OumvStreamTrace } from '@tokensafe-ui/oumv/contracts';
 // Loaded lazily: the React controller must not evaluate the native runtime (or its
 // solid-js dependency) just to serve observe/verify.
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
@@ -277,8 +277,9 @@ function extractSymbolRange(source: string, symbolName: string): { source: strin
 export function createReactOumvController(options: ReactRpcOptions) {
   const { rootDir, server } = options;
   const reactVersion = readReactVersion(rootDir);
-  const traces: Array<Record<string, any>> = [];
+  const traces: Array<OumvStreamTrace & Record<string, any>> = [];
   const MAX_TRACES = 128;
+  let traceSeq = 0;
 
   let latestSnapshot: ReactBridgeSnapshot | null = null;
   let lastClientSeenAt = 0;
@@ -292,10 +293,38 @@ export function createReactOumvController(options: ReactRpcOptions) {
     { resolve: (val: any) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> }
   >();
 
+  const toIsoTimestamp = (value: unknown): string => {
+    if (typeof value === 'string' || typeof value === 'number') {
+      const parsed = typeof value === 'number' ? value : Date.parse(value);
+      if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+    }
+    return new Date().toISOString();
+  };
+
   const recordTrace = (trace: Record<string, any>) => {
-    traces.push(trace);
+    if (!trace || typeof trace !== 'object') return;
+    // Keep the raw browser fields (url/status/type) for L4 observe and add the
+    // canonical stream fields (seq/timestamp/path/statusCode) for SSE and WS.
+    const path = String(trace.path ?? trace.route ?? trace.target ?? trace.url ?? '');
+    const statusCode = Number(trace.statusCode ?? trace.status ?? 200);
+    const durationMs = Number(trace.durationMs ?? trace.duration ?? 0);
+    traces.push({
+      ...trace,
+      seq: ++traceSeq,
+      method: String(trace.method ?? trace.action ?? 'BROWSER'),
+      path,
+      route: String(trace.route ?? path),
+      handler: String(trace.handler ?? 'react-bridge'),
+      statusCode: Number.isFinite(statusCode) ? statusCode : 200,
+      durationMs: Number.isFinite(durationMs) ? durationMs : 0,
+      timestamp: toIsoTimestamp(trace.timestamp),
+    });
     if (traces.length > MAX_TRACES) traces.shift();
   };
+
+  /** Traces newer than `seq` (SSE `Last-Event-ID` / WS notification cursor). */
+  const getTracesSince = (seq: number): OumvStreamTrace[] =>
+    traces.filter((trace) => trace.seq > seq);
 
   if (server) {
     server.ws.on('oumv:react-snapshot', (data: ReactBridgeSnapshot) => {
@@ -420,7 +449,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
   const sessions = new Map<string, number>();
   const SESSION_TTL_SECONDS = 3600;
 
-  const handleRpcPayload = async (payload: any): Promise<{ statusCode: number; body: any }> => {
+  const handleSingleRpc = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     const { id, method, params = {} } = payload || {};
 
     // Spec §3: a supplied sessionId must be live; an absent one means stateless.
@@ -1294,6 +1323,30 @@ export function createReactOumvController(options: ReactRpcOptions) {
     }
   };
 
+  const handleRpcPayload = async (payload: any): Promise<{ statusCode: number; body: any }> => {
+    // Spec §2.2: batch arrays are accepted over HTTP bodies and WS frames.
+    if (Array.isArray(payload)) {
+      const responses: any[] = [];
+      for (const item of payload) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          responses.push({
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32600, message: 'INVALID_REQUEST: batch entries must be JSON-RPC objects' },
+          });
+          continue;
+        }
+        const isNotification = item.id === undefined;
+        const out = await handleRpcPayload(item);
+        if (isNotification && !out.body?.error) continue;
+        responses.push(out.body);
+      }
+      return { statusCode: 200, body: responses };
+    }
+
+    return handleSingleRpc(payload);
+  };
+
   const callAdapterMethod = async (method: string, params: any = {}) => {
     const out = await handleRpcPayload({ id: 1, method, params });
     if (out.body?.error) {
@@ -1321,6 +1374,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
     isBrowserConnected,
     getLatestSnapshot: () => latestSnapshot,
     getTraces: () => traces.slice(),
+    getTracesSince,
     reactVersion,
   };
 }
