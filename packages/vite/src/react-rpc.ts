@@ -417,15 +417,40 @@ export function createReactOumvController(options: ReactRpcOptions) {
     },
   });
 
+  const sessions = new Map<string, number>();
+  const SESSION_TTL_SECONDS = 3600;
+
   const handleRpcPayload = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     const { id, method, params = {} } = payload || {};
+
+    // Spec §3: a supplied sessionId must be live; an absent one means stateless.
+    if (method === 'oumv/disconnect') {
+      const closed = sessions.delete(String(params.sessionId || ''));
+      return rpcSuccess(id, { closed });
+    }
+    if (method !== 'oumv/handshake' && method !== 'handshake' && params.sessionId) {
+      const expiresAt = sessions.get(String(params.sessionId));
+      if (!expiresAt || Date.now() > expiresAt) {
+        sessions.delete(String(params.sessionId));
+        return rpcError(
+          id,
+          ERR_VALIDATION_FAILED,
+          'VALIDATION_FAILED: unknown or expired sessionId — re-run oumv/handshake',
+          { reason: 'session_expired', sessionId: params.sessionId }
+        );
+      }
+    }
 
     switch (method) {
       case 'oumv/handshake':
       case 'handshake': {
+        const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
+        sessions.set(sessionId, Date.now() + SESSION_TTL_SECONDS * 1000);
         return rpcSuccess(id, {
           protocolVersion: '1.1.0',
           profile: 'frontend',
+          sessionId,
+          ttlSeconds: SESSION_TTL_SECONDS,
           runtimeInfo: {
             name: 'react',
             version: reactVersion,
