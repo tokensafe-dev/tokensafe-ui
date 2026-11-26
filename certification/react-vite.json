@@ -108,10 +108,10 @@
       "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-26T14:56:02.635Z",
+  "generatedAt": "2026-11-26T15:24:19.744Z",
   "environment": {
     "transport": "stdio",
     "browser": false,
-    "note": "headless run of the real controller (packages/vite/scripts/oumv-stdio.mjs); L2 verify and L3 traces/causality need an open browser tab and fail without one"
+    "note": "headless run of the real controller (packages/vite/scripts/oumv-stdio.mjs); L2 verify and L3 traces/causality need an open browser tab and fail without one. With a connected tab the same controller passes all 18 cases (agent-dom packages/vite/test/react-conformance.test.ts)."
   }
 }

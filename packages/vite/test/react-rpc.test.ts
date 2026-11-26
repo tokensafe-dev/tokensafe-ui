@@ -118,8 +118,8 @@ export default function App() {
       method: 'oumv/observe',
       params: { level: 'L0' },
     });
-    expect(l0.body.result.browserConnected).toBe(false);
-    expect(l0.body.result.staticComponentsCount).toBeGreaterThanOrEqual(2);
+    expect(l0.body.result.data.browserConnected).toBe(false);
+    expect(l0.body.result.data.staticComponentsCount).toBeGreaterThanOrEqual(2);
 
     const l1 = await controller.handleRpcPayload({
       id: 3,
@@ -128,7 +128,7 @@ export default function App() {
     });
     expect(l1.body.result.format).toBe('yaml');
     expect(l1.body.result.payload).toContain('Counter');
-    expect(l1.body.result.components.some((c: any) => c.name === 'Counter')).toBe(true);
+    expect(l1.body.result.data.components.some((c: any) => c.name === 'Counter')).toBe(true);
     expect(JSON.stringify(l1.body.result).length).toBeLessThan(2000);
 
     const l1Json = await controller.handleRpcPayload({
@@ -137,15 +137,15 @@ export default function App() {
       params: { level: 'L1', format: 'json' },
     });
     expect(l1Json.body.result.format).toBe('json');
-    expect(Array.isArray(l1Json.body.result.resources)).toBe(true);
-    expect(l1Json.body.result.components.some((c: any) => c.name === 'Counter')).toBe(true);
+    expect(Array.isArray(l1Json.body.result.data.resources)).toBe(true);
+    expect(l1Json.body.result.data.components.some((c: any) => c.name === 'Counter')).toBe(true);
 
     const impact = await controller.handleRpcPayload({
       id: 4,
       method: 'oumv/understand',
       params: { query: 'impact', target: 'Counter' },
     });
-    expect(impact.body.result.directlyAffected).toContain('src/App.tsx');
+    expect(impact.body.result.impact.directlyAffected).toContain('src/App.tsx');
 
     const src = await controller.handleRpcPayload({
       id: 5,
@@ -223,6 +223,29 @@ export default function App() {
     });
     expect(expired.body.error.code).toBe(-32011);
     expect(expired.body.error.data.reason).toBe('session_expired');
+  });
+
+  it('narrows handshake capabilities to the requested observe levels and formats', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+
+    const full = await controller.handleRpcPayload({ id: 1, method: 'oumv/handshake' });
+    expect(full.body.result.capabilities.observe.levels).toHaveLength(5);
+
+    const narrowed = await controller.handleRpcPayload({
+      id: 2,
+      method: 'oumv/handshake',
+      params: { requestedCapabilities: { observe: { levels: ['L0', 'L2'], formats: ['json', 'yaml'] } } },
+    });
+    expect(narrowed.body.result.capabilities.observe.levels).toEqual(['L0', 'L2']);
+    expect(narrowed.body.result.capabilities.observe.formats).toEqual(['yaml', 'json']);
+
+    const yamlOnly = await controller.handleRpcPayload({
+      id: 3,
+      method: 'oumv/handshake',
+      params: { requestedCapabilities: { observe: { formats: ['hologram'] } } },
+    });
+    expect(yamlOnly.body.result.capabilities.observe.formats).toEqual([]);
+    expect(yamlOnly.body.result.capabilities.observe.levels).toHaveLength(5);
   });
 
   it('normalizes browser traces for SSE ids and WS cursors without losing L4 fields', () => {
@@ -314,9 +337,9 @@ export default function App() {
     handlers['oumv:react-trace']?.({ type: 'fetch', method: 'GET', url: '/api/stats', status: 200, durationMs: 12 });
 
     const l1 = await controller.handleRpcPayload({ id: 1, method: 'oumv/observe', params: { level: 'L1', format: 'json' } });
-    expect(l1.body.result.browserConnected).toBe(true);
-    expect(l1.body.result.route).toBe('/pricing');
-    expect(l1.body.result.elements[0].id).toBe('btn-annual');
+    expect(l1.body.result.data.browserConnected).toBe(true);
+    expect(l1.body.result.data.route).toBe('/pricing');
+    expect(l1.body.result.data.elements[0].id).toBe('btn-annual');
 
     const l1Yaml = await controller.handleRpcPayload({ id: 11, method: 'oumv/observe', params: { level: 'L1' } });
     expect(l1Yaml.body.result.format).toBe('yaml');
@@ -324,8 +347,8 @@ export default function App() {
     expect(JSON.stringify(l1Yaml.body.result).length).toBeLessThan(2000);
 
     const l4 = await controller.handleRpcPayload({ id: 2, method: 'oumv/observe', params: { level: 'L4' } });
-    expect(l4.body.result.traces).toHaveLength(1);
-    expect(l4.body.result.traces[0].url).toBe('/api/stats');
+    expect(l4.body.result.data.traces).toHaveLength(1);
+    expect(l4.body.result.data.traces[0].url).toBe('/api/stats');
 
     const verify = await controller.handleRpcPayload({
       id: 3,

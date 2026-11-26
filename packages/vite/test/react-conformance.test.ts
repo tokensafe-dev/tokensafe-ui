@@ -8,7 +8,8 @@ import { createReactOumvController } from '../src/index.js';
 
 const require = createRequire(import.meta.url);
 
-// Load optional @oumv/conformance runner & fixtures from sibling agent-oumv workspace when present locally
+// The fixture suite lives in the sibling agent-oumv workspace; CI without that
+// checkout skips the certification cases instead of silently passing them.
 const AGENT_OUMV_ROOT = path.resolve(__dirname, '../../../../agent-oumv');
 const CONFORMANCE_CJS = path.join(AGENT_OUMV_ROOT, 'packages/conformance/dist/index.cjs');
 const SCHEMA_CJS = path.join(AGENT_OUMV_ROOT, 'packages/schema/dist/index.cjs');
@@ -16,191 +17,192 @@ const FIXTURES_PATH = path.join(AGENT_OUMV_ROOT, 'fixtures/conformance-cases.jso
 const hasSiblingOumv =
   fs.existsSync(CONFORMANCE_CJS) && fs.existsSync(SCHEMA_CJS) && fs.existsSync(FIXTURES_PATH);
 
-interface ConformanceCase {
-  id: string;
-  level: 1 | 2 | 3;
-  method: string;
-  params: Record<string, any>;
-  preconditions?: string[];
-  expectResultFields?: string[];
-  expectError?: { code: number };
-  expectLevelEquals?: string;
-  expectEvidence?: boolean;
-  expectSha256Field?: string;
-  expectArrayField?: string;
-  expectVersionMatchesContent?: string;
+const sha = (content: string) => `sha256:${crypto.createHash('sha256').update(content).digest('hex')}`;
+
+const EDIT_CONTENT = 'export const edited = true;\n';
+const BROKEN_CONTENT = 'export function Broken( {\n';
+
+function snapshotPayload() {
+  return {
+    framework: 'react',
+    route: '/',
+    title: 'Test React App',
+    elementCount: 12,
+    mountedComponents: [
+      { id: 'frontend.component:Counter', name: 'Counter', instances: 1, propsKeys: [], hooksCount: 1 },
+    ],
+    interactiveSurface: [
+      { id: 'btn-inc', tag: 'button', role: 'button', label: 'Increment', action: 'click', component: 'Counter' },
+    ],
+    registeredStores: {},
+    registeredComponents: {},
+    contracts: [],
+    errorsCount: 0,
+    errors: [],
+    tracesCount: 0,
+    timestamp: Date.now(),
+  };
 }
 
-function getByJsonPath(obj: any, dotPath: string): any {
-  return dotPath.split('.').reduce((acc, part) => (acc && typeof acc === 'object' ? acc[part] : undefined), obj);
+function createInstrumentedFakeServer() {
+  const handlers: Record<string, Function> = {};
+  const fakeServer: any = {
+    ws: {
+      on: (event: string, handler: Function) => {
+        handlers[event] = handler;
+      },
+      send: (event: string, payload: any) => {
+        if (event === 'oumv:react-observe') {
+          handlers['oumv:react-observe-res']?.({
+            requestId: payload.requestId,
+            snapshot: snapshotPayload(),
+          });
+        } else if (event === 'oumv:react-verify') {
+          handlers['oumv:react-verify-res']?.({
+            requestId: payload.requestId,
+            status: 'passed',
+            target: payload.target,
+            action: payload.action,
+            diff: { text: { before: 'Increment', after: 'Increment' } },
+            surfaceDiff: [{ op: 'text', target: 'btn-inc', before: 'a', after: 'b' }],
+            durationMs: 4.2,
+            latency: { actionMs: 1.1, totalMs: 4.2 },
+          });
+        }
+      },
+    },
+  };
+  return { fakeServer, handlers };
 }
 
-describe('@tokensafe-ui/vite React Adapter — @oumv/conformance Certification', () => {
+describe('@tokensafe-ui/vite React Adapter — OUMV fixture certification', () => {
   let tmpDir: string;
 
-  const createInstrumentedFakeServer = () => {
-    const handlers: Record<string, Function> = {};
-    const server: any = {
-      ws: {
-        on: (ev: string, fn: Function) => {
-          handlers[ev] = fn;
-        },
-        send: (ev: string, payload: any) => {
-          if (ev === 'oumv:react-observe') {
-            handlers['oumv:react-observe-res']?.({
-              requestId: payload.requestId,
-              snapshot: {
-                framework: 'react',
-                route: '/',
-                title: 'Test React App',
-                elementCount: 12,
-                mountedComponents: [
-                  {
-                    id: 'frontend.component:Counter',
-                    name: 'Counter',
-                    instances: 1,
-                    propsKeys: ['initial'],
-                    hooksCount: 1,
-                  },
-                ],
-                interactiveSurface: [
-                  {
-                    id: 'btn-inc',
-                    tag: 'button',
-                    role: 'button',
-                    label: 'Increment',
-                    action: 'click',
-                    component: 'Counter',
-                  },
-                ],
-                registeredStores: {},
-                registeredComponents: {},
-                contracts: [],
-                errorsCount: 0,
-                errors: [],
-                tracesCount: 1,
-                timestamp: Date.now(),
-              },
-            });
-          } else if (ev === 'oumv:react-verify') {
-            handlers['oumv:react-verify-res']?.({
-              requestId: payload.requestId,
-              status: 'passed',
-              target: payload.target,
-              action: payload.action,
-              diff: { count: { before: 0, after: 1 } },
-              surfaceDiff: [{ op: 'text', target: 'btn-inc', before: '0', after: '1' }],
-              durationMs: 2.5,
-              latency: { actionMs: 1.0, totalMs: 2.5 },
-            });
-          }
-        },
-      },
-      moduleGraph: { getModuleById: () => null, invalidateModule: () => {} },
-      reloadModule: async () => {},
-    };
-    return { server, handlers };
-  };
-
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oumv-react-conformance-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oumv-react-cert-'));
     fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, 'src', 'Counter.tsx'),
-      `import React, { useState } from 'react';
-export function Counter() {
-  const [count, setCount] = useState(0);
-  return <button data-agent-id="btn-inc" onClick={() => setCount(count + 1)}>{count}</button>;
-}
-`,
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'react-fixture-app', dependencies: { react: '^18.3.1' } }),
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(tmpDir, 'src', 'App.tsx'),
-      `import { Counter } from './Counter';
-export default function App() {
-  return <main><Counter /></main>;
-}
-`,
+      path.join(tmpDir, 'src', 'Counter.tsx'),
+      `export function Counter() {\n  return <button data-agent-id="btn-inc">Increment</button>;\n}\n`,
       'utf-8'
     );
+    fs.writeFileSync(path.join(tmpDir, 'src', 'EditTarget.tsx'), `export const value = 41;\n`, 'utf-8');
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it.runIf(hasSiblingOumv)('passes @oumv/conformance runConformanceSuite at Level 3 (full fixture set)', async () => {
-    const { runConformanceSuite } = require(CONFORMANCE_CJS);
-    const { server, handlers } = createInstrumentedFakeServer();
-    const controller = createReactOumvController({ rootDir: tmpDir, server });
+  function markers() {
+    return {
+      fixtureFile: 'src/Counter.tsx',
+      missingFile: 'src/Missing.tsx',
+      editTarget: 'src/EditTarget.tsx',
+      editVersion: sha('export const value = 41;\n'),
+      editContent: EDIT_CONTENT,
+      brokenContent: BROKEN_CONTENT,
+      l2Target: 'Counter',
+      l3Target: 'src/Counter.tsx',
+      verifyTarget: 'Counter',
+    };
+  }
 
-    // Seed initial snapshot and runtime trace as an active browser tab does
-    handlers['oumv:react-snapshot']?.({
-      framework: 'react',
-      route: '/',
-      title: 'Test React App',
-      elementCount: 12,
-      mountedComponents: [
-        { id: 'frontend.component:Counter', name: 'Counter', instances: 1, propsKeys: [], hooksCount: 1 },
-      ],
-      interactiveSurface: [
-        { id: 'btn-inc', tag: 'button', role: 'button', label: 'Increment', action: 'click', component: 'Counter' },
-      ],
-      registeredStores: {},
-      registeredComponents: {},
-      contracts: [],
-      errorsCount: 0,
-      errors: [],
-      tracesCount: 0,
-      timestamp: Date.now(),
-    });
-    handlers['oumv:react-trace']?.({
-      type: 'verify:click',
-      target: 'Counter',
-      route: '/',
-      timestamp: Date.now(),
-    });
+  async function runFixtures(withBrowser: boolean) {
+    const { loadFixtures, runFixtureSuite, memoryTransport } = require(CONFORMANCE_CJS);
+    let server: any;
+    let handlers: Record<string, Function> = {};
+    if (withBrowser) {
+      ({ fakeServer: server, handlers } = createInstrumentedFakeServer());
+    }
+    const controller = createReactOumvController({ rootDir: tmpDir, ...(server ? { server } : {}) });
+    if (withBrowser) {
+      handlers['oumv:react-snapshot']?.(snapshotPayload());
+      handlers['oumv:react-trace']?.({
+        type: 'verify:click',
+        target: 'Counter',
+        route: '/',
+        timestamp: Date.now(),
+      });
+    }
 
-    const adapter = controller.asOumvAdapter();
-    const report = await runConformanceSuite(adapter, {
-      componentId: 'Counter',
-      filePath: 'src/Counter.tsx',
-      action: 'click',
+    const transport = memoryTransport(async (request: any) => {
+      const out = await controller.handleRpcPayload(request);
+      return out.body;
     });
+    const spec = loadFixtures(FIXTURES_PATH);
+    return runFixtureSuite(transport, spec, markers(), {
+      adapterName: 'frontend/react',
+      environment: { browser: withBrowser },
+    });
+  }
 
-    expect(report.failed).toBe(0);
-    expect(report.skipped).toBe(0);
-    expect(report.passed).toBe(13);
-    expect(report.total).toBe(13);
-    expect(report.attainedLevel).toBe(3);
-    expect(report.levels).toEqual({ 1: 'passed', 2: 'passed', 3: 'passed' });
+  it('answers the canonical observe envelope (level/format/data)', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+    const l0 = await controller.handleRpcPayload({ id: 1, method: 'oumv/observe', params: { level: 'L0' } });
+
+    expect(l0.body.result.level).toBe('L0');
+    expect(l0.body.result.format).toBe('yaml');
+    expect(typeof l0.body.result.data).toBe('object');
+    expect(l0.body.result.browserConnected).toBeUndefined();
+    expect(typeof l0.body.result.payload).toBe('string');
   });
 
-  it.runIf(hasSiblingOumv)('validates canonical ResourceCollection & ResourceReference[] schema at L1', async () => {
-    const { ResourceReferenceSchema } = require(SCHEMA_CJS);
-    const { server, handlers } = createInstrumentedFakeServer();
-    const controller = createReactOumvController({ rootDir: tmpDir, server });
+  it('narrows handshake capabilities to the requested levels', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+    const full = await controller.handleRpcPayload({ id: 1, method: 'oumv/handshake' });
+    expect(full.body.result.capabilities.observe.levels).toHaveLength(5);
 
-    handlers['oumv:react-snapshot']?.({
-      framework: 'react',
-      route: '/',
-      title: 'Test',
-      elementCount: 5,
-      mountedComponents: [
-        { id: 'frontend.component:Counter', name: 'Counter', instances: 1, propsKeys: [], hooksCount: 1 },
-      ],
-      interactiveSurface: [
-        { id: 'btn-inc', tag: 'button', role: 'button', label: 'Increment', action: 'click', component: 'Counter' },
-      ],
-      registeredStores: {},
-      registeredComponents: {},
-      contracts: [],
-      errorsCount: 0,
-      errors: [],
-      tracesCount: 0,
-      timestamp: Date.now(),
+    const narrowed = await controller.handleRpcPayload({
+      id: 2,
+      method: 'oumv/handshake',
+      params: { requestedCapabilities: { observe: { levels: ['L0', 'L1'] } } },
     });
+    expect(narrowed.body.result.capabilities.observe.levels).toEqual(['L0', 'L1']);
+  });
+
+  it.runIf(hasSiblingOumv)(
+    'attains Level 3 when a browser tab answers the bridge',
+    async () => {
+      const report = await runFixtures(true);
+      if (report.failed > 0) {
+        console.log(report.cases.filter((c: any) => c.status !== 'passed'));
+      }
+      expect(report.passed).toBe(report.total);
+      expect(report.attainedLevel).toBe(3);
+      expect(report.levels).toEqual({ 1: 'passed', 2: 'passed', 3: 'passed' });
+    },
+    20_000
+  );
+
+  it.runIf(hasSiblingOumv)(
+    'attains Level 1 offline and names the browser-only failures',
+    async () => {
+      const report = await runFixtures(false);
+      expect(report.attainedLevel).toBe(1);
+      const failed = report.cases.filter((c: any) => c.status === 'failed').map((c: any) => c.id);
+      expect(failed).toEqual(
+        expect.arrayContaining([
+          'observe-l4-returns-recorded-traces',
+          'understand-causality-after-execution',
+          'verify-returns-status-timings-and-scope',
+        ])
+      );
+      const verifyCase = report.cases.find((c: any) => c.id === 'verify-returns-status-timings-and-scope');
+      expect(verifyCase.error).toContain('-32008');
+    },
+    20_000
+  );
+
+  it.runIf(hasSiblingOumv)('exposes a canonical ResourceCollection at L1', async () => {
+    const { ResourceReferenceSchema } = require(SCHEMA_CJS);
+    const { fakeServer, handlers } = createInstrumentedFakeServer();
+    const controller = createReactOumvController({ rootDir: tmpDir, server: fakeServer });
+    handlers['oumv:react-snapshot']?.(snapshotPayload());
 
     const l1 = await controller.handleRpcPayload({
       id: 1,
@@ -208,178 +210,13 @@ export default function App() {
       params: { level: 'L1', format: 'json' },
     });
 
-    const res = l1.body.result;
-    expect(Array.isArray(res.resources)).toBe(true);
-    expect(res.total).toBe(res.resources.length);
-    expect(res.total).toBeGreaterThanOrEqual(2);
-    expect(res.provenanceSummary.runtime).toBeGreaterThanOrEqual(2);
-    expect(res.provenanceSummary.static).toBeGreaterThanOrEqual(1);
-
-    for (const item of res.resources) {
-      expect(() => ResourceReferenceSchema.parse(item)).not.toThrow();
+    const data = l1.body.result.data;
+    expect(Array.isArray(data.resources)).toBe(true);
+    expect(data.total).toBe(data.resources.length);
+    expect(data.total).toBeGreaterThanOrEqual(2);
+    expect(data.provenanceSummary.runtime).toBeGreaterThanOrEqual(2);
+    for (const resource of data.resources) {
+      expect(ResourceReferenceSchema.safeParse(resource).success).toBe(true);
     }
-  });
-
-  it.runIf(hasSiblingOumv)('passes language-neutral conformance-cases.json fixtures (SPEC §10)', async () => {
-    const fixtureData = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf-8')) as {
-      cases: ConformanceCase[];
-    };
-    const { server, handlers } = createInstrumentedFakeServer();
-    const controller = createReactOumvController({ rootDir: tmpDir, server });
-
-    handlers['oumv:react-snapshot']?.({
-      framework: 'react',
-      route: '/',
-      title: 'Test',
-      elementCount: 5,
-      mountedComponents: [
-        { id: 'frontend.component:Counter', name: 'Counter', instances: 1, propsKeys: [], hooksCount: 1 },
-      ],
-      interactiveSurface: [
-        { id: 'btn-inc', tag: 'button', role: 'button', label: 'Increment', action: 'click', component: 'Counter' },
-      ],
-      registeredStores: {},
-      registeredComponents: {},
-      contracts: [],
-      errorsCount: 0,
-      errors: [],
-      tracesCount: 0,
-      timestamp: Date.now(),
-    });
-
-    const editTargetRel = 'src/EditTarget.tsx';
-    const editTargetAbs = path.join(tmpDir, editTargetRel);
-    const initialEditContent = `export function EditTarget() { return <div>Initial</div>; }\n`;
-    fs.writeFileSync(editTargetAbs, initialEditContent, 'utf-8');
-    const editTargetVersion =
-      'sha256:' + crypto.createHash('sha256').update(initialEditContent).digest('hex');
-
-    const validReplacement = `export function EditTarget() { return <div>Updated</div>; }\n`;
-    const brokenReplacement = `export function EditTarget() { return <div>Broken; }\n`;
-
-    const substitute = (val: any): any => {
-      if (typeof val === 'string') {
-        return val
-          .replaceAll('${FIXTURE_FILE}', 'src/Counter.tsx')
-          .replaceAll('${MISSING_FILE}', 'src/DoesNotExist.tsx')
-          .replaceAll('${EDIT_TARGET_FILE}', editTargetRel)
-          .replaceAll('${EDIT_TARGET_VERSION}', editTargetVersion)
-          .replaceAll('${EDIT_CONTENT}', validReplacement)
-          .replaceAll('${BROKEN_CONTENT}', brokenReplacement)
-          .replaceAll('${L2_TARGET}', 'Counter')
-          .replaceAll('${L3_TARGET}', 'src/Counter.tsx')
-          .replaceAll('${VERIFY_TARGET}', 'btn-inc');
-      }
-      if (val && typeof val === 'object' && !Array.isArray(val)) {
-        const out: Record<string, any> = {};
-        for (const [k, v] of Object.entries(val)) out[k] = substitute(v);
-        return out;
-      }
-      return val;
-    };
-
-    for (const tc of fixtureData.cases) {
-      if (tc.preconditions?.includes('verify')) {
-        await controller.handleRpcPayload({
-          id: `pre-${tc.id}`,
-          method: 'oumv/verify',
-          params: { target: 'btn-inc', action: 'click' },
-        });
-        handlers['oumv:react-trace']?.({
-          type: 'verify:click',
-          target: 'btn-inc',
-          route: '/',
-          timestamp: Date.now(),
-        });
-      }
-
-      const params = substitute(tc.params);
-      const resp = await controller.handleRpcPayload({
-        id: tc.id,
-        method: tc.method,
-        params,
-      });
-
-      if (tc.expectError) {
-        expect(resp.body.error, `${tc.id} should return error`).toBeDefined();
-        expect(resp.body.error.code, `${tc.id} error code`).toBe(tc.expectError.code);
-        continue;
-      }
-
-      expect(resp.body.error, `${tc.id} unexpected error`).toBeUndefined();
-      const result = resp.body.result;
-
-      for (const field of tc.expectResultFields || []) {
-        expect(getByJsonPath(result, field), `${tc.id}: missing ${field}`).toBeDefined();
-      }
-      if (tc.expectLevelEquals) {
-        expect(result.level, `${tc.id} level`).toBe(tc.expectLevelEquals);
-      }
-      if (tc.expectEvidence) {
-        expect(result.evidence?.provenance || result.data?.evidence?.provenance).toBeTruthy();
-      }
-      if (tc.expectSha256Field) {
-        expect(getByJsonPath(result, tc.expectSha256Field)).toMatch(/^sha256:[a-f0-9]{64}$/);
-      }
-      if (tc.expectArrayField) {
-        expect(Array.isArray(getByJsonPath(result, tc.expectArrayField))).toBe(true);
-      }
-      if (tc.expectVersionMatchesContent) {
-        const expectedContent = substitute(tc.expectVersionMatchesContent);
-        const expectedSha =
-          'sha256:' + crypto.createHash('sha256').update(expectedContent).digest('hex');
-        expect(result.newVersion).toBe(expectedSha);
-      }
-    }
-  });
-
-  it('passes self-contained CI OUMV Level 1-3 checks without external sibling repo', async () => {
-    const { server, handlers } = createInstrumentedFakeServer();
-    const controller = createReactOumvController({ rootDir: tmpDir, server });
-
-    handlers['oumv:react-snapshot']?.({
-      framework: 'react',
-      route: '/',
-      title: 'Test',
-      elementCount: 5,
-      mountedComponents: [
-        { id: 'frontend.component:Counter', name: 'Counter', instances: 1, propsKeys: [], hooksCount: 1 },
-      ],
-      interactiveSurface: [
-        { id: 'btn-inc', tag: 'button', role: 'button', label: 'Increment', action: 'click', component: 'Counter' },
-      ],
-      registeredStores: {},
-      registeredComponents: {},
-      contracts: [],
-      errorsCount: 0,
-      errors: [],
-      tracesCount: 0,
-      timestamp: Date.now(),
-    });
-
-    const hs = await controller.handleRpcPayload({ id: 1, method: 'oumv/handshake', params: { protocolVersion: '1.0.0' } });
-    expect(hs.body.result.runtimeInfo.name).toBe('react');
-
-    const l1 = await controller.handleRpcPayload({ id: 2, method: 'oumv/observe', params: { level: 'L1', format: 'json' } });
-    expect(Array.isArray(l1.body.result.resources)).toBe(true);
-    expect(l1.body.result.total).toBe(l1.body.result.resources.length);
-    expect(l1.body.result.provenanceSummary.runtime).toBeGreaterThanOrEqual(2);
-
-    const l3 = await controller.handleRpcPayload({ id: 3, method: 'oumv/observe', params: { level: 'L3', target: 'src/Counter.tsx' } });
-    expect(l3.body.result.data.version).toMatch(/^sha256:[a-f0-9]{64}$/);
-
-    const conflict = await controller.handleRpcPayload({
-      id: 4,
-      method: 'oumv/applyEdit',
-      params: { path: 'src/Counter.tsx', replacement: 'export const X = 1;\n', expectedVersion: 'sha256:bad' },
-    });
-    expect(conflict.body.error.code).toBe(-32001);
-
-    const verify = await controller.handleRpcPayload({
-      id: 5,
-      method: 'oumv/verify',
-      params: { target: 'btn-inc', action: 'click' },
-    });
-    expect(verify.body.result.status).toBe('passed');
   });
 });

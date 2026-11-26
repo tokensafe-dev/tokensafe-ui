@@ -449,7 +449,47 @@ export function createReactOumvController(options: ReactRpcOptions) {
   const sessions = new Map<string, number>();
   const SESSION_TTL_SECONDS = 3600;
 
-  const handleSingleRpc = async (payload: any): Promise<{ statusCode: number; body: any }> => {
+  /** Canonical envelope for every method: extras belong inside `data`, never beside it. */
+  const normalizeResult = (method: string, out: { statusCode: number; body: any }) => {
+    const result = out?.body?.result;
+    if (!result || typeof result !== 'object' || Array.isArray(result)) return out;
+    if (method === 'oumv/observe') {
+      const { level, format, data, payload, tokenEstimate, evidence, ...rest } = result as Record<string, any>;
+      return {
+        ...out,
+        body: {
+          ...out.body,
+          result: {
+            level,
+            format,
+            // Per-level `data` is the profile's extension point (schema: no
+            // additionalProperties restriction there), so browser/static metadata
+            // lives there instead of beside the envelope.
+            data: { ...(data && typeof data === 'object' ? data : {}), ...rest },
+            ...(payload !== undefined ? { payload } : {}),
+            ...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
+            ...(evidence ? { evidence } : {}),
+          },
+        },
+      };
+    }
+    if (method === 'oumv/understand') {
+      const { query, target, impact, causality, ...rest } = result as Record<string, any>;
+      const narrowed: Record<string, any> = { query, target };
+      if (impact) narrowed.impact = { ...impact, ...rest };
+      else if (causality) narrowed.causality = { ...causality, ...rest };
+      else narrowed.impact = { ...rest };
+      return { ...out, body: { ...out.body, result: narrowed } };
+    }
+    if (method === 'oumv/getSource' && 'filePath' in (result as Record<string, any>)) {
+      const { filePath, ...rest } = result as Record<string, any>;
+      void filePath;
+      return { ...out, body: { ...out.body, result: rest } };
+    }
+    return out;
+  };
+
+  const dispatchRpc = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     const { id, method, params = {} } = payload || {};
 
     // Spec §3: a supplied sessionId must be live; an absent one means stateless.
@@ -475,6 +515,25 @@ export function createReactOumvController(options: ReactRpcOptions) {
       case 'handshake': {
         const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
         sessions.set(sessionId, Date.now() + SESSION_TTL_SECONDS * 1000);
+        const capabilities = {
+          observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
+          understand: { causality: true, signalsGraph: false, impactAnalysis: true },
+          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true },
+          verify: { multiMetric: true, surfaceDiff: true },
+        };
+        // §3.1: narrow the advertised set to the client's request; an empty
+        // intersection stays empty instead of being widened back.
+        const requested = params?.requestedCapabilities;
+        if (requested && typeof requested === 'object') {
+          const reqLevels = Array.isArray(requested.observe?.levels) ? requested.observe.levels : [];
+          const reqFormats = Array.isArray(requested.observe?.formats) ? requested.observe.formats : [];
+          if (reqLevels.length > 0) {
+            capabilities.observe.levels = capabilities.observe.levels.filter((level) => reqLevels.includes(level));
+          }
+          if (reqFormats.length > 0) {
+            capabilities.observe.formats = capabilities.observe.formats.filter((format) => reqFormats.includes(format));
+          }
+        }
         return rpcSuccess(id, {
           protocolVersion: '1.1.0',
           profile: 'frontend',
@@ -485,12 +544,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             version: reactVersion,
             framework: 'React + Vite',
           },
-          capabilities: {
-            observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
-            understand: { causality: true, signalsGraph: false, componentGraph: true, impactAnalysis: true },
-            mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true },
-            verify: { multiMetric: true, surfaceDiff: true },
-          },
+          capabilities,
         });
       }
 
@@ -702,6 +756,14 @@ export function createReactOumvController(options: ReactRpcOptions) {
                 framework: 'react',
                 browserConnected: true,
                 route: snap.route,
+                // Spec §4.1 L1: interactive elements are the frontend surface.
+                elements: elements.map((e) => ({
+                  id: e.id,
+                  tag: e.tag,
+                  ...(e.role ? { role: e.role } : {}),
+                  ...(e.label ? { label: e.label } : {}),
+                  ...(e.action ? { action: e.action } : {}),
+                })),
                 total: collection.total,
                 provenanceSummary: collection.provenanceSummary,
                 components: mounted.slice(0, 15).map((c) => ({ id: c.id, name: c.name })),
@@ -821,6 +883,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
               timestamp: now,
               framework: 'react',
               browserConnected: false,
+              // No tab, no interactive surface: an empty list plus the note below.
+              elements: [],
               total: collection.total,
               provenanceSummary: collection.provenanceSummary,
               components: staticComponents.slice(0, 15).map((c) => ({ id: c.id, name: c.name })),
@@ -846,6 +910,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             timestamp: now,
             framework: 'react',
             browserConnected: false,
+            elements: [],
             resources: collection.resources,
             total: collection.total,
             provenanceSummary: collection.provenanceSummary,
@@ -1240,7 +1305,9 @@ export function createReactOumvController(options: ReactRpcOptions) {
             createBackup: true,
           });
 
-          if (server) {
+          // HMR invalidation is a nicety: embedded/headless controllers (fixture
+          // runs, certification) have a server without a module graph.
+          if (server?.moduleGraph) {
             const mod = server.moduleGraph.getModuleById(resolved);
             if (mod) {
               server.moduleGraph.invalidateModule(mod);
@@ -1321,6 +1388,11 @@ export function createReactOumvController(options: ReactRpcOptions) {
       default:
         return rpcError(id, ERR_METHOD_NOT_FOUND, `Method not found: ${method}`);
     }
+  };
+
+  const handleSingleRpc = async (payload: any): Promise<{ statusCode: number; body: any }> => {
+    const out = await dispatchRpc(payload);
+    return normalizeResult(String(payload?.method ?? ''), out);
   };
 
   const handleRpcPayload = async (payload: any): Promise<{ statusCode: number; body: any }> => {

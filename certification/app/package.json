@@ -1,0 +1,10 @@
+{
+  "name": "oumv-react-certification-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Minimal React app used to certify the Vite adapter in a real browser (registers a probe store, issues one fetch so L4 has a trace).",
+  "scripts": { "dev": "vite", "install:deps": "npm install" },
+  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "devDependencies": { "vite": "^6.0.7", "@vitejs/plugin-react": "^4.3.4" }
+}
