@@ -14,6 +14,7 @@
  *     --report certification/react-vite-browser.json
  */
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -68,6 +69,19 @@ try {
   // The app registers its probe store and issues one fetch; give both a moment.
   await page.waitForTimeout(750);
 
+  const sha = (text) => 'sha256:' + crypto.createHash('sha256').update(text, 'utf-8').digest('hex');
+  const symbolBefore = 'export function probe(value) {\n  return 41;\n}\n';
+  const symbolAfter = 'export function probe(value) {\n  return 42;\n}\n';
+  const deleteSource = 'export const deleteMe = true;\n';
+  const renameSource = 'export const renameMe = true;\n';
+  // v1.1 fixture files are rewritten every run: the symbol case edits one, the
+  // delete case removes one, and the rename case moves one.
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src/SymbolTarget.jsx'), symbolBefore, 'utf-8');
+  fs.writeFileSync(path.join(root, 'src/DeleteTarget.jsx'), deleteSource, 'utf-8');
+  fs.writeFileSync(path.join(root, 'src/RenameSource.jsx'), renameSource, 'utf-8');
+  fs.rmSync(path.join(root, 'src/RenameTarget.jsx'), { force: true });
+
   const markers = {
     fixtureFile: process.env.OUMV_CERT_FIXTURE_FILE || 'src/EditTarget.jsx',
     missingFile: 'src/Missing.jsx',
@@ -78,6 +92,16 @@ try {
     l2Target: process.env.OUMV_CERT_L2_TARGET || 'App',
     l3Target: process.env.OUMV_CERT_L3_TARGET || 'src/EditTarget.jsx',
     verifyTarget: process.env.OUMV_CERT_VERIFY_TARGET || 'certificationProbe',
+    symbolFile: 'src/SymbolTarget.jsx',
+    symbolName: 'probe',
+    symbolReplacement: symbolAfter,
+    symbolVersion: sha(symbolBefore),
+    symbolFileContent: symbolAfter,
+    deleteFile: 'src/DeleteTarget.jsx',
+    deleteVersion: sha(deleteSource),
+    renameSource: 'src/RenameSource.jsx',
+    renameTarget: 'src/RenameTarget.jsx',
+    renameVersion: sha(renameSource),
   };
   const markersFile = path.join(os.tmpdir(), `oumv-browser-markers-${process.pid}.json`);
   fs.writeFileSync(markersFile, JSON.stringify(markers, null, 2));

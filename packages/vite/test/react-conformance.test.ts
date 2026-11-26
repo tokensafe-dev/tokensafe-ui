@@ -21,6 +21,10 @@ const sha = (content: string) => `sha256:${crypto.createHash('sha256').update(co
 
 const EDIT_CONTENT = 'export const edited = true;\n';
 const BROKEN_CONTENT = 'export function Broken( {\n';
+const SYMBOL_BEFORE = 'export function probe(value) {\n  return 41;\n}\n';
+const SYMBOL_AFTER = 'export function probe(value) {\n  return 42;\n}\n';
+const DELETE_SOURCE = 'export const deleteMe = true;\n';
+const RENAME_SOURCE = 'export const renameMe = true;\n';
 
 function snapshotPayload() {
   return {
@@ -92,6 +96,9 @@ describe('@tokensafe-ui/vite React Adapter — OUMV fixture certification', () =
       'utf-8'
     );
     fs.writeFileSync(path.join(tmpDir, 'src', 'EditTarget.tsx'), `export const value = 41;\n`, 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'SymbolTarget.tsx'), SYMBOL_BEFORE, 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'DeleteTarget.tsx'), DELETE_SOURCE, 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'RenameSource.tsx'), RENAME_SOURCE, 'utf-8');
   });
 
   afterEach(() => {
@@ -110,6 +117,16 @@ describe('@tokensafe-ui/vite React Adapter — OUMV fixture certification', () =
       l2Target: 'Counter',
       l3Target: 'src/Counter.tsx',
       verifyTarget: 'Counter',
+      symbolFile: 'src/SymbolTarget.tsx',
+      symbolName: 'probe',
+      symbolReplacement: SYMBOL_AFTER,
+      symbolVersion: sha(SYMBOL_BEFORE),
+      symbolFileContent: SYMBOL_AFTER,
+      deleteFile: 'src/DeleteTarget.tsx',
+      deleteVersion: sha(DELETE_SOURCE),
+      renameSource: 'src/RenameSource.tsx',
+      renameTarget: 'src/RenameTarget.tsx',
+      renameVersion: sha(RENAME_SOURCE),
     };
   }
 

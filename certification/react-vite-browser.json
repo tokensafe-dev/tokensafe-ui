@@ -1,10 +1,10 @@
 {
   "adapterName": "frontend/react",
   "framework": "react",
-  "specVersion": "1.1.0",
-  "fixtureVersion": 5,
-  "total": 20,
-  "passed": 20,
+  "specVersion": "1.2.0",
+  "fixtureVersion": 6,
+  "total": 25,
+  "passed": 25,
   "failed": 0,
   "skipped": 0,
   "attainedLevel": 3,
@@ -113,9 +113,34 @@
       "id": "create-existing-file-rejected",
       "level": 2,
       "status": "passed"
+    },
+    {
+      "id": "verify-multi-step-runs-in-order",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-replace-symbol",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-delete",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-rename",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "observe-l1-pagination",
+      "level": 1,
+      "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-26T17:19:15.233Z",
+  "generatedAt": "2026-11-26T19:06:44.723Z",
   "environment": {
     "transport": "http",
     "profile": "frontend",

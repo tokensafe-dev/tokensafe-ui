@@ -237,6 +237,29 @@ function buildImportDependencyMap(rootDir: string): Map<string, string[]> {
   return importersOf;
 }
 
+function replaceLinesAt(source: string, startLine: number, endLine: number, replacement: string): string {
+  const lines = source.split('\n');
+  const before = lines.slice(0, startLine - 1);
+  const after = lines.slice(endLine);
+  const middle = replacement.split('\n');
+  if (replacement.endsWith('\n')) middle.pop();
+  let patched = [...before, ...middle, ...after].join('\n');
+  if (source.endsWith('\n') && !patched.endsWith('\n')) patched += '\n';
+  return patched;
+}
+
+function pageSlice<T>(items: T[], limitRaw: unknown, cursorRaw: unknown): { page: T[]; hasMore?: boolean; nextCursor?: string } {
+  const raw = Number(limitRaw);
+  const limit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+  let start = Number.parseInt(String(cursorRaw ?? ''), 10);
+  if (!Number.isFinite(start) || start < 0) start = 0;
+  if (start > items.length) start = items.length;
+  if (limit && start + limit < items.length) {
+    return { page: items.slice(start, start + limit), hasMore: true, nextCursor: String(start + limit) };
+  }
+  return { page: items.slice(start), ...(limit ? { hasMore: false } : {}) };
+}
+
 function extractSymbolRange(source: string, symbolName: string): { source: string; startLine: number; endLine: number } | null {
   try {
     const ast = parser.parse(source, { sourceType: 'module', plugins: ['jsx', 'typescript'] });
@@ -590,7 +613,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.1.0',
+          protocolVersion: '1.2.0',
           profile: 'frontend',
           sessionId,
           ttlSeconds: SESSION_TTL_SECONDS,
@@ -676,6 +699,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
         }
 
         if (level === 'L1') {
+          const staticPage = pageSlice(staticRes.components, params?.limit, params?.cursor);
           const filterLower = target.toLowerCase();
           const allMatchingStatic = staticRes.components.filter(
             (c) =>
@@ -826,6 +850,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
                   route: snap.route,
                   total: collection.total,
                   provenanceSummary: collection.provenanceSummary,
+                  ...(staticPage.hasMore !== undefined ? { hasMore: staticPage.hasMore } : {}),
+                  ...(staticPage.nextCursor ? { nextCursor: staticPage.nextCursor } : {}),
                 },
                 evidence: {
                   provenance: 'runtime',
@@ -852,6 +878,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
                 total: collection.total,
                 provenanceSummary: collection.provenanceSummary,
                 route: snap.route,
+                ...(staticPage.hasMore !== undefined ? { hasMore: staticPage.hasMore } : {}),
+                ...(staticPage.nextCursor ? { nextCursor: staticPage.nextCursor } : {}),
               },
               components: mounted,
               elements,
@@ -942,10 +970,14 @@ export function createReactOumvController(options: ReactRpcOptions) {
               elements: [],
               total: collection.total,
               provenanceSummary: collection.provenanceSummary,
-              components: staticComponents.slice(0, 15).map((c) => ({ id: c.id, name: c.name })),
+              components: (staticPage.hasMore !== undefined ? staticPage.page : staticComponents)
+                .slice(0, 15)
+                .map((c) => ({ id: c.id, name: c.name })),
               data: {
                 total: collection.total,
                 provenanceSummary: collection.provenanceSummary,
+                ...(staticPage.hasMore !== undefined ? { hasMore: staticPage.hasMore } : {}),
+                ...(staticPage.nextCursor ? { nextCursor: staticPage.nextCursor } : {}),
               },
               note: 'No browser tab connected yet — returning compact static AST React surface.',
               evidence: {
@@ -972,8 +1004,10 @@ export function createReactOumvController(options: ReactRpcOptions) {
             data: {
               total: collection.total,
               provenanceSummary: collection.provenanceSummary,
+              ...(staticPage.hasMore !== undefined ? { hasMore: staticPage.hasMore } : {}),
+              ...(staticPage.nextCursor ? { nextCursor: staticPage.nextCursor } : {}),
             },
-            components: staticComponents,
+            components: staticPage.hasMore !== undefined ? staticPage.page : staticComponents,
             routes: staticRes.routes,
             contractsCount: contracts.length,
             note: 'No browser tab connected yet — returning static AST React component surface.',
@@ -1329,9 +1363,13 @@ export function createReactOumvController(options: ReactRpcOptions) {
         const relPath = String(params?.path || params?.filePath || '');
         const newSource = params?.replacement ?? params?.source;
         const expectedVersion = params?.expectedVersion;
+        const mode = String(params?.mode || 'replace').toLowerCase();
 
-        if (!relPath || typeof newSource !== 'string') {
-          return rpcError(id, ERR_INVALID_PARAMS, 'path and replacement/source string are required');
+        if (!relPath) {
+          return rpcError(id, ERR_INVALID_PARAMS, 'path is required');
+        }
+        if (!['replace', 'create', 'symbol', 'delete', 'rename'].includes(mode)) {
+          return rpcError(id, -32006, `UNSUPPORTED_CAPABILITY: unknown applyEdit mode ${JSON.stringify(mode)}`);
         }
 
         let resolved: string;
@@ -1342,7 +1380,10 @@ export function createReactOumvController(options: ReactRpcOptions) {
         }
 
         // create mode (spec §4.3): new file, no expectedVersion, never an overwrite.
-        if (String(params?.mode || 'replace').toLowerCase() === 'create') {
+        if (mode === 'create') {
+          if (typeof newSource !== 'string' || newSource.length === 0) {
+            return rpcError(id, ERR_INVALID_PARAMS, 'replacement is required for mode=create');
+          }
           if (expectedVersion) {
             return rpcError(
               id,
@@ -1372,6 +1413,78 @@ export function createReactOumvController(options: ReactRpcOptions) {
           });
         }
 
+        if (mode === 'delete') {
+          if (newSource !== undefined && String(newSource) !== '') {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: replacement must be omitted for mode=delete', {
+              reason: 'replacement_forbidden',
+            });
+          }
+          if (!fs.existsSync(resolved)) {
+            return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
+          }
+          if (!expectedVersion || typeof expectedVersion !== 'string') {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion is required to delete a file', {
+              reason: 'expected_version_required',
+            });
+          }
+          const currentVersion = 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(resolved)).digest('hex');
+          if (expectedVersion !== currentVersion) {
+            return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: version mismatch on delete');
+          }
+          fs.unlinkSync(resolved);
+          return rpcSuccess(id, {
+            status: 'APPLIED',
+            path: path.relative(rootDir, resolved),
+            syntaxCheck: { status: 'skipped' },
+            deleted: true,
+          });
+        }
+
+        if (mode === 'rename') {
+          const renameTo = String(params?.renameTo || '').trim();
+          if (!renameTo) {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: renameTo is required for mode=rename', {
+              reason: 'rename_to_required',
+            });
+          }
+          if (newSource !== undefined && String(newSource) !== '') {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: replacement must be omitted for mode=rename', {
+              reason: 'replacement_forbidden',
+            });
+          }
+          let target: string;
+          try {
+            target = validateProjectPath(renameTo, rootDir);
+          } catch (err: any) {
+            return rpcError(id, ERR_SECURITY, err.message);
+          }
+          if (!fs.existsSync(resolved)) {
+            return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
+          }
+          if (fs.existsSync(target)) {
+            return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: rename target already exists', {
+              reason: 'target_exists',
+            });
+          }
+          if (!expectedVersion || typeof expectedVersion !== 'string') {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion is required to rename a file', {
+              reason: 'expected_version_required',
+            });
+          }
+          const currentVersion = 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(resolved)).digest('hex');
+          if (expectedVersion !== currentVersion) {
+            return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: version mismatch on rename');
+          }
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.renameSync(resolved, target);
+          return rpcSuccess(id, {
+            status: 'APPLIED',
+            path: path.relative(rootDir, resolved),
+            newPath: renameTo.split(path.sep).join('/'),
+            syntaxCheck: { status: 'skipped' },
+          });
+        }
+
         if (!fs.existsSync(resolved)) {
           return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
         }
@@ -1382,6 +1495,52 @@ export function createReactOumvController(options: ReactRpcOptions) {
             ERR_VALIDATION_FAILED,
             'VALIDATION_FAILED: expectedVersion (sha256 OCC token) is required for oumv/applyEdit'
           );
+        }
+
+        if (mode === 'symbol') {
+          const symbol = String(params?.symbol || '').trim();
+          if (!symbol) {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: symbol is required for mode=symbol', {
+              reason: 'symbol_required',
+            });
+          }
+          if (typeof newSource !== 'string' || newSource.length === 0) {
+            return rpcError(id, ERR_INVALID_PARAMS, 'replacement is required for mode=symbol');
+          }
+          const current = fs.readFileSync(resolved, 'utf-8');
+          const currentVersion = 'sha256:' + crypto.createHash('sha256').update(current).digest('hex');
+          if (expectedVersion !== currentVersion) {
+            return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: version mismatch on symbol edit');
+          }
+          const range = extractSymbolRange(current, symbol);
+          if (!range) {
+            return rpcError(id, ERR_RESOURCE_NOT_FOUND, `RESOURCE_NOT_FOUND: symbol ${JSON.stringify(symbol)} not found`);
+          }
+          const patched = replaceLinesAt(current, range.startLine, range.endLine, newSource);
+          try {
+            parser.parse(patched, { sourceType: 'unambiguous', plugins: ['typescript', 'jsx'] });
+          } catch (err: any) {
+            return rpcError(id, ERR_SYNTAX, `SYNTAX_ERROR: pre-flight parse failed: ${err.message}`);
+          }
+          let backupPath: string | undefined;
+          try {
+            const backupDir = path.join(rootDir, '.tokensafe', 'backups');
+            fs.mkdirSync(backupDir, { recursive: true });
+            const target = path.join(backupDir, `${Date.now()}-${path.basename(resolved)}`);
+            fs.writeFileSync(target, current, 'utf-8');
+            backupPath = path.relative(rootDir, target);
+          } catch {
+            backupPath = undefined;
+          }
+          fs.writeFileSync(resolved, patched, 'utf-8');
+          return rpcSuccess(id, {
+            status: 'APPLIED',
+            path: path.relative(rootDir, resolved),
+            symbol,
+            newVersion: 'sha256:' + crypto.createHash('sha256').update(patched).digest('hex'),
+            syntaxCheck: { status: 'passed', tool: '@babel/parser' },
+            ...(backupPath ? { backupPath } : {}),
+          });
         }
 
         try {
@@ -1429,9 +1588,50 @@ export function createReactOumvController(options: ReactRpcOptions) {
       case 'oumv/verify': {
         const target = String(params?.target || params?.componentId || '').trim();
         const action = String(params?.action || 'click').trim();
-        if (!target) {
+        const steps = Array.isArray(params?.steps) ? params.steps : [];
+        if (!target && steps.length === 0) {
           return rpcError(id, ERR_INVALID_PARAMS, 'target is required for oumv/verify');
         }
+
+        if (steps.length > 0) {
+          const results: Array<{ target: string; statusCode: number; status: string; responseBody: unknown }> = [];
+          let total = 0;
+          for (const step of steps) {
+            const stepTarget = String(step?.target || '').trim();
+            if (!stepTarget) {
+              return rpcError(id, ERR_INVALID_PARAMS, 'every verify step needs a target');
+            }
+            const stepAction = String(step?.action || 'click').trim();
+            const stepRes = await requestBrowserVerify(stepTarget, stepAction, step?.payload);
+            if (stepRes.errorCode) {
+              return rpcError(id, stepRes.errorCode, stepRes.error);
+            }
+            const stepMs = Number(stepRes.durationMs ?? 0);
+            total += stepMs;
+            results.push({
+              target: stepRes.target || stepTarget,
+              statusCode: stepRes.status === 'failed' ? 500 : 200,
+              status: stepRes.status === 'failed' ? 'failed' : 'passed',
+              responseBody: stepRes.diff ?? {},
+            });
+          }
+          const last = results[results.length - 1];
+          return rpcSuccess(id, {
+            status: 'passed',
+            target: target || last.target,
+            statusCode: last.statusCode,
+            steps: results,
+            diff: { stepCount: results.length },
+            timings: { t_action_ms: total, t_schema_ms: 0, t_propagation_ms: 0, t_dom_ms: 0, t_total_ms: total },
+            durationMs: total,
+            scope: {
+              checked: ['ordered browser-bridge dispatch'],
+              notExecuted: ['native OS events', 'real network'],
+              notSupported: ['multi-tab coordination'],
+            },
+          });
+        }
+
         const verifyRes = await requestBrowserVerify(target, action, params?.payload);
         if (verifyRes.errorCode) {
           return rpcError(id, verifyRes.errorCode, verifyRes.error);

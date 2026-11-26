@@ -258,7 +258,7 @@ Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.to
 
 ### 1. Conformance: Level 3 in a real browser
 
-`certification/react-vite-browser.json` — **20/20 cases (fixtures v5), Level 3**, produced by
+`certification/react-vite-browser.json` — **25/25 cases (fixtures v6), Level 3**, produced by
 `packages/vite/scripts/certify-react-browser.mjs`: it starts the committed
 `certification/app` through Vite, opens it in headless Chrome, waits for the bridge and
 runs `oumv-certify --url` against the dev server. `oumv/verify` dispatches real synthetic
@@ -266,7 +266,7 @@ events, and L4 traces are the ones the bridge actually recorded.
 
 The offline stdio run (`certification/react-vite.json`) attains Level 1 for a reason worth
 stating: `oumv/verify` answers `-32008` without a browser tab and L4/causality have no
-traces, so all three failures are named in the report instead of being hidden.
+traces, so the four browser-only failures are named in the report instead of hidden.
 
 ### 2. Adapter latency (measured on `certification/app`)
 
