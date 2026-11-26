@@ -1316,6 +1316,37 @@ export function createReactOumvController(options: ReactRpcOptions) {
           return rpcError(id, ERR_SECURITY, err.message);
         }
 
+        // create mode (spec §4.3): new file, no expectedVersion, never an overwrite.
+        if (String(params?.mode || 'replace').toLowerCase() === 'create') {
+          if (expectedVersion) {
+            return rpcError(
+              id,
+              ERR_VALIDATION_FAILED,
+              'VALIDATION_FAILED: expectedVersion must be omitted for mode=create',
+              { reason: 'create_forbids_version' }
+            );
+          }
+          if (fs.existsSync(resolved)) {
+            return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: file already exists; use mode=replace with its version', {
+              reason: 'file_exists',
+            });
+          }
+          try {
+            parser.parse(newSource, { sourceType: 'unambiguous', plugins: ['typescript', 'jsx'] });
+          } catch (err: any) {
+            return rpcError(id, ERR_SYNTAX, `SYNTAX_ERROR: pre-flight parse failed: ${err.message}`);
+          }
+          fs.mkdirSync(path.dirname(resolved), { recursive: true });
+          fs.writeFileSync(resolved, newSource, 'utf-8');
+          return rpcSuccess(id, {
+            status: 'APPLIED',
+            path: path.relative(rootDir, resolved),
+            newVersion: 'sha256:' + crypto.createHash('sha256').update(newSource).digest('hex'),
+            syntaxCheck: { status: 'passed', tool: '@babel/parser' },
+            created: true,
+          });
+        }
+
         if (!fs.existsSync(resolved)) {
           return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
         }

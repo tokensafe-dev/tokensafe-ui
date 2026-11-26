@@ -248,6 +248,45 @@ export default function App() {
     expect(yamlOnly.body.result.capabilities.observe.levels).toHaveLength(5);
   });
 
+  it('creates a new file with mode=create and refuses to overwrite', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+
+    const created = await controller.handleRpcPayload({
+      id: 1,
+      method: 'oumv/applyEdit',
+      params: { path: 'src/Created.tsx', replacement: 'export const created = true;\n', mode: 'create' },
+    });
+    expect(created.body.result.created).toBe(true);
+    expect(created.body.result.status).toBe('APPLIED');
+    expect(fs.existsSync(path.join(tmpDir, 'src', 'Created.tsx'))).toBe(true);
+
+    const conflict = await controller.handleRpcPayload({
+      id: 2,
+      method: 'oumv/applyEdit',
+      params: { path: 'src/Created.tsx', replacement: 'x', mode: 'create' },
+    });
+    expect(conflict.body.error.code).toBe(-32001);
+
+    const forbidden = await controller.handleRpcPayload({
+      id: 3,
+      method: 'oumv/applyEdit',
+      params: {
+        path: 'src/Other.tsx',
+        replacement: 'x',
+        mode: 'create',
+        expectedVersion: 'sha256:' + '0'.repeat(64),
+      },
+    });
+    expect(forbidden.body.error.code).toBe(-32011);
+
+    const broken = await controller.handleRpcPayload({
+      id: 4,
+      method: 'oumv/applyEdit',
+      params: { path: 'src/Broken.tsx', replacement: 'export function Broken( {', mode: 'create' },
+    });
+    expect(broken.body.error.code).toBe(-32002);
+  });
+
   it('normalizes browser traces for SSE ids and WS cursors without losing L4 fields', () => {
     const handlers: Record<string, Function> = {};
     const controller = createReactOumvController({

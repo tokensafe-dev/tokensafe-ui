@@ -254,50 +254,40 @@ Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.to
 
 ---
 
-## Agent Usability Benchmark (AUB): React vs. TokenSafe UI
+## Measured results
 
-To scientifically test whether TokenSafe UI genuinely accelerates autonomous AI development rather than merely saving reading tokens, the **Agent Usability Benchmark (AUB / AUI-Bench)** evaluates autonomous AI agents solving identical, production-grade tasks on both **React 18/19** and **TokenSafe UI**.
+### 1. Conformance: Level 3 in a real browser
 
-### Benchmark Task: Full-Featured Task Manager
-Agents implement a multi-dimensional Task Manager with:
-- Multi-criteria filtering (Status: Active/Completed; Priority: High/Medium/Low).
-- Real-time search query matching titles and tags.
-- Asynchronous persistence with simulated network latency and loading states.
-- HTTP 500 network failure handling, retry recovery, and optimistic update rollback.
+`certification/react-vite-browser.json` — **18/18 cases, Level 3**, produced by
+`packages/vite/scripts/certify-react-browser.mjs`: it starts the committed
+`certification/app` through Vite, opens it in headless Chrome, waits for the bridge and
+runs `oumv-certify --url` against the dev server. `oumv/verify` dispatches real synthetic
+events, and L4 traces are the ones the bridge actually recorded.
 
-### The North Star Metric: Functional Yield per Token (FYpT)
+The offline stdio run (`certification/react-vite.json`) attains Level 1 for a reason worth
+stating: `oumv/verify` answers `-32008` without a browser tab and L4 has no traces, so
+both failures are named in the report instead of being hidden.
 
-> ⚠️ **Simulated, not measured.** The React/sandbox oracle really runs 12 assertions, but the
-> token and turn counts come from canned replay traces (`packages/benchmark/src/runner/replay-traces.ts`).
-> Do not quote these ratios as measured results.
-Traditional benchmarks only measure tokens saved. AUB measures **working software delivered per token**:
-$$\text{FYpT} = \frac{\text{Passed Functional Assertions}}{\text{Total Tokens Spent}} \times 1,000$$
+### 2. Adapter latency (measured on `certification/app`)
 
-$$\text{Autonomous Efficiency Ratio (AER)} = \frac{\text{FYpT}_{\text{TokenSafe}}}{\text{FYpT}_{\text{React}}} = \mathbf{7.62\times} \to \mathbf{21.0\times} \text{ (Super-Optimized)}$$
+| Operation | Before | After |
+| :--- | ---: | ---: |
+| `getSource`, first call | 198.5 ms | **0.1 ms** |
+| `applyEdit`, first call | 202.8 ms | **7.2 ms** (preload window) / 1.2 ms warm |
+| `observe` L1 | 1.9 ms | 1.6 ms |
 
-### Comparative Scorecard (12-Assertion Shared Behavioral Oracle)
+The first two were dominated by importing the 216 KB MCP bundle just to resolve a path;
+the controller now carries a local realpath jail and imports the edit engine only for
+edits, warming it in the background at startup.
 
-| Metric | React 18/19 Baseline | TokenSafe UI (Golden) | TokenSafe UI (1-Turn Super-Opt) |
-| :--- | :---: | :---: | :---: |
-| **Autonomous Efficiency Ratio (AER)** | $1.0\times$ | **$7.62\times$** | **$21.0\times$ (WINNER)** |
-| **Functional Yield / 1k Tokens (FYpT)** | `0.3687` | **`2.8103`** | **`7.7419` (+2,000%)** |
-| **Total Tokens Consumed** | `32,550` | `4,270` | **`1,550` (-95.2%)** |
-| **Agent Iterations (Turns to Green)** | `6` | `3` | **`1 turn` (-83.3%)** |
-| **Diagnostics Errors Encountered** | `3` | `0` | **`0 errors`** |
-| **Regressions Encountered** | `2` | `0` | **`0 regressions`** |
-| **Self-Recovery Rate (SRR)** | `100%` | `100%` | **`100%`** |
-| **Estimated Run Cost (USD)** | `$0.1502` | `$0.0262` | **`$0.0100` (-93.3%)** |
+### 3. Agent-level benchmark: not published
 
-Run the benchmark locally:
-```bash
-# Run baseline golden replay (AER: 7.62x)
-pnpm aub:replay
-
-# Run 1-turn super-optimized replay (AER: 21.0x)
-pnpm aub:replay --optimized
-```
-
-👉 Read the full methodology and architectural analysis in [docs/benchmarks/agent-usability-benchmark.md](docs/benchmarks/agent-usability-benchmark.md).
+The earlier AER scorecard (7.62×/21.0×) was computed from **replay traces**, not from a
+measured agent run, so it is withdrawn from this README. The replay harness still runs
+(`pnpm aub:replay`) and is useful for regression-checking the workflow, but it cannot
+support a productivity claim. A measured three-arm run (baseline / tools / OUMV with the
+DeepSeek driver in `tokensafe/src/bench`) is the next step; until it exists, no AER number
+is quoted here.
 
 ### Empirical Case Study: Autonomous MCP Debugging in Order Checkout (v0.2.0)
 
