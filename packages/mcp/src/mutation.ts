@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
-import ts from 'typescript';
 import { checkSecretLeak } from './security.js';
 
 export interface MutationOptions {
@@ -20,7 +19,15 @@ export interface MutationResult {
 }
 
 /**
- * Validates source code syntax and TypeScript diagnostics before writing.
+ * Validates source code syntax before writing.
+ *
+ * Babel (already a runtime dependency) parses TSX/TS and is the syntax gate.
+ * We deliberately do NOT import the TypeScript compiler here: it was only used
+ * for `createSourceFile().parseDiagnostics`, which reports the same syntax
+ * errors Babel already catches, while making `typescript` a hard runtime
+ * dependency of the published bundle (consumers got ERR_MODULE_NOT_FOUND when
+ * it was absent). Semantic type checking is out of scope for the guard — say so
+ * rather than implying it happened.
  */
 export function validateSourceSyntaxAndTypes(source: string, fileName: string = 'component.tsx'): void {
   // 1. Babel Parser check (JSX, TS, modern ECMAScript)
@@ -34,23 +41,7 @@ export function validateSourceSyntaxAndTypes(source: string, fileName: string = 
     throw new Error(`SYNTAX_ERROR: TypeScript/JSX parse failed at ${loc}: ${err.message}`);
   }
 
-  // 2. TypeScript Compiler check
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  );
-
-  const diagnostics = (sourceFile as any).parseDiagnostics || [];
-  if (diagnostics.length > 0) {
-    const first = diagnostics[0];
-    const message = ts.flattenDiagnosticMessageText(first.messageText, '\n');
-    throw new Error(`TYPESCRIPT_DIAGNOSTIC_ERROR: ${message}`);
-  }
-
-  // 3. Security Leak Interceptor
+  // 2. Security Leak Interceptor
   const leak = checkSecretLeak(source);
   if (leak.hasLeak) {
     throw new Error(`SECURITY_VIOLATION: ${leak.reason}`);
