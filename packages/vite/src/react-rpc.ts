@@ -1275,6 +1275,11 @@ export function createReactOumvController(options: ReactRpcOptions) {
             t_total_ms: totalMs,
           },
           durationMs: totalMs,
+          scope: {
+            checked: ['browser bridge dispatch (synthetic events)'],
+            notExecuted: ['native OS events', 'real network'],
+            notSupported: ['multi-tab coordination'],
+          },
           latency: verifyRes.latency,
           evidence: {
             provenance: 'runtime',
