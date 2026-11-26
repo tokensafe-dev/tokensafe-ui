@@ -1,6 +1,6 @@
 {
   "name": "tokensafe-ui-monorepo",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "private": true,
   "description": "Deterministic, token-efficient frontend micro-framework for AI coding agents",
   "type": "module",
