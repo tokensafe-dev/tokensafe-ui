@@ -150,7 +150,9 @@ describe('@tokensafe-ui/vite React Adapter — OUMV fixture certification', () =
     expect(l0.body.result.format).toBe('yaml');
     expect(typeof l0.body.result.data).toBe('object');
     expect(l0.body.result.browserConnected).toBeUndefined();
-    expect(typeof l0.body.result.payload).toBe('string');
+    // §4.6: the deprecated `payload` alias must never be emitted; `data` carries it.
+    expect(l0.body.result.payload).toBeUndefined();
+    expect(typeof l0.body.result.data.staticComponentsCount).toBe('number');
   });
 
   it('narrows handshake capabilities to the requested levels', async () => {
