@@ -263,6 +263,10 @@ Agents implement a multi-dimensional Task Manager with:
 - HTTP 500 network failure handling, retry recovery, and optimistic update rollback.
 
 ### The North Star Metric: Functional Yield per Token (FYpT)
+
+> ⚠️ **Simulated, not measured.** The React/sandbox oracle really runs 12 assertions, but the
+> token and turn counts come from canned replay traces (`packages/benchmark/src/runner/replay-traces.ts`).
+> Do not quote these ratios as measured results.
 Traditional benchmarks only measure tokens saved. AUB measures **working software delivered per token**:
 $$\text{FYpT} = \frac{\text{Passed Functional Assertions}}{\text{Total Tokens Spent}} \times 1,000$$
 
