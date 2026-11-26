@@ -1,161 +1,63 @@
-import React, { useState, useMemo } from 'react';
+import React, { useSyncExternalStore } from 'react';
 import type { TaskItem } from '../../../src/types.js';
-import { MockTaskBackend } from '../../../src/oracle/mock-api.js';
+import { TaskManagerStore, selectFilteredTasks, type TaskManagerState } from './store.js';
 
 export interface ReactTaskManagerProps {
-  initialTasks?: TaskItem[];
-  backend?: MockTaskBackend;
+  store: TaskManagerStore;
 }
 
-export const ReactTaskManager: React.FC<ReactTaskManagerProps> = ({
-  initialTasks,
-  backend,
-}) => {
-  const [tasks, setTasks] = useState<TaskItem[]>(() =>
-    initialTasks ? JSON.parse(JSON.stringify(initialTasks)) : []
-  );
-  const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [filterPriority, setFilterPriority] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-
-  // Filtered task calculation
-  const filteredTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      // Status filter
-      if (filterStatus === 'Active' && t.status !== 'Active') return false;
-      if (filterStatus === 'Completed' && t.status !== 'Completed') return false;
-
-      // Priority filter
-      if (filterPriority !== 'All' && t.priority !== filterPriority) return false;
-
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const inTitle = t.title.toLowerCase().includes(q);
-        const inTags = t.tags && t.tags.some((tag) => tag.toLowerCase().includes(q));
-        if (!inTitle && !inTags) return false;
-      }
-
-      return true;
-    });
-  }, [tasks, filterStatus, filterPriority, searchQuery]);
-
-  // Actions
-  const handleAddTask = (title: string) => {
-    if (!title.trim()) return;
-    const newTask: TaskItem = {
-      id: `task-${Date.now()}`,
-      title: title.trim(),
-      status: 'Active',
-      priority: 'Medium',
-      tags: [],
-      updatedAt: Date.now(),
-    };
-    setTasks((prev) => [...prev, newTask]);
-  };
-
-  const handleToggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? { ...t, status: t.status === 'Active' ? 'Completed' : 'Active' }
-          : t
-      )
-    );
-  };
-
-  const handleSaveTasks = async () => {
-    if (!backend) return;
-    setIsSaving(true);
-    setErrorMessage(null);
-    setSuccessMessage(null);
-
-    try {
-      await backend.saveTasks(tasks);
-      setIsSaving(false);
-      setSuccessMessage('Saved successfully');
-    } catch (err: any) {
-      setIsSaving(false);
-      setErrorMessage(err?.message || 'Failed to save tasks');
-      throw err;
-    }
-  };
-
-  const handleRetrySave = async () => {
-    return handleSaveTasks();
-  };
-
-  const handleOptimisticToggleTask = async (id: string) => {
-    const priorTask = tasks.find((t) => t.id === id);
-    if (!priorTask) return;
-
-    const optimisticStatus: 'Active' | 'Completed' =
-      priorTask.status === 'Active' ? 'Completed' : 'Active';
-
-    // Apply optimistic update immediately
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: optimisticStatus } : t))
-    );
-
-    if (backend) {
-      try {
-        await backend.syncTask({ ...priorTask, status: optimisticStatus });
-      } catch (err: any) {
-        // Rollback to prior status on failure
-        setTasks((prev) =>
-          prev.map((t) => (t.id === id ? { ...t, status: priorTask.status } : t))
-        );
-        setErrorMessage(err?.message || 'Optimistic sync failed');
-        throw err;
-      }
-    }
-  };
+/**
+ * Real React view over a synchronous store.
+ *
+ * Rendering goes through React (reconciliation, hooks, event handlers); the state
+ * itself lives in `TaskManagerStore` so a test/agent adapter can read it
+ * deterministically right after dispatching an action.
+ */
+export const ReactTaskManager: React.FC<ReactTaskManagerProps> = ({ store }) => {
+  const state: TaskManagerState = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const visible: TaskItem[] = selectFilteredTasks(state);
 
   return (
     <div className="task-manager" data-agent-id="task-manager:root">
       <header>
         <h1>Task Manager (React)</h1>
-        <span data-agent-id="task-manager:count">Total: {tasks.length}</span>
+        <span data-agent-id="task-manager:count">Total: {state.tasks.length}</span>
       </header>
 
-      {/* Error banner */}
-      {errorMessage && (
+      {state.errorMessage && (
         <div role="alert" className="error-banner" data-agent-id="task-manager:error-banner">
-          <span>{errorMessage}</span>
+          <span>{state.errorMessage}</span>
           <button
             data-agent-id="task-manager:retry-btn"
             data-testid="retry-btn"
-            onClick={handleRetrySave}
+            onClick={() => {
+              void store.retrySave().catch(() => undefined);
+            }}
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* Success banner */}
-      {successMessage && (
+      {state.successMessage && (
         <div className="success-banner" data-agent-id="task-manager:success-banner">
-          {successMessage}
+          {state.successMessage}
         </div>
       )}
 
-      {/* Search and Filters */}
       <section className="controls">
         <input
           type="text"
           placeholder="Search tasks or tags..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          value={state.searchQuery}
+          onChange={(e) => store.setSearchQuery(e.target.value)}
           data-agent-id="task-manager:search"
           data-testid="search-input"
         />
 
         <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
+          value={state.filterStatus}
+          onChange={(e) => store.setFilterStatus(e.target.value)}
           data-agent-id="task-manager:status-filter"
           data-testid="status-filter"
         >
@@ -165,8 +67,8 @@ export const ReactTaskManager: React.FC<ReactTaskManagerProps> = ({
         </select>
 
         <select
-          value={filterPriority}
-          onChange={(e) => setFilterPriority(e.target.value)}
+          value={state.filterPriority}
+          onChange={(e) => store.setFilterPriority(e.target.value)}
           data-agent-id="task-manager:priority-filter"
         >
           <option value="All">All Priorities</option>
@@ -176,32 +78,37 @@ export const ReactTaskManager: React.FC<ReactTaskManagerProps> = ({
         </select>
 
         <button
-          disabled={isSaving}
-          onClick={handleSaveTasks}
+          disabled={state.isSaving}
+          onClick={() => {
+            void store.saveTasks().catch(() => undefined);
+          }}
           data-agent-id="task-manager:save-btn"
           data-testid="save-btn"
         >
-          {isSaving ? 'Saving...' : 'Save Tasks'}
+          {state.isSaving ? 'Saving...' : 'Save Tasks'}
         </button>
       </section>
 
-      {/* Task List */}
       <ul className="task-list" data-agent-id="task-manager:list">
-        {filteredTasks.map((t) => (
+        {visible.map((task) => (
           <li
-            key={t.id}
-            className={`task-item ${t.status.toLowerCase()}`}
-            data-agent-id={`task-item:${t.id}`}
+            key={task.id}
+            className={`task-item ${task.status.toLowerCase()}`}
+            data-agent-id={`task-item:${task.id}`}
           >
             <input
               type="checkbox"
-              checked={t.status === 'Completed'}
-              onChange={() => handleToggleTask(t.id)}
+              checked={task.status === 'Completed'}
+              onChange={() => store.toggleTask(task.id)}
             />
-            <span className="title">{t.title}</span>
-            <span className={`badge ${t.priority.toLowerCase()}`}>{t.priority}</span>
+            <span className="title">{task.title}</span>
+            <span className={`badge ${task.priority.toLowerCase()}`}>{task.priority}</span>
             <div className="tags">
-              {t.tags && t.tags.map((tag) => <span key={tag} className="tag">#{tag}</span>)}
+              {task.tags?.map((tag) => (
+                <span key={tag} className="tag">
+                  #{tag}
+                </span>
+              ))}
             </div>
           </li>
         ))}
