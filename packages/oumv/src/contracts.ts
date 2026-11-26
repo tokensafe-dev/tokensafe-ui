@@ -84,6 +84,16 @@ export function defineOUMVComponent<T>(component: T, contract: OumvComponentCont
     /* frozen components are still registered by id */
   }
 
+  // Forward to live browser React OUMV bridge if active
+  try {
+    const bridge = (globalThis as any).__OUMV_REACT__;
+    if (bridge && typeof bridge.registerContract === 'function') {
+      bridge.registerContract(record);
+    }
+  } catch {
+    /* ignore non-browser environments */
+  }
+
   return component;
 }
 

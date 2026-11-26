@@ -352,9 +352,15 @@ importers:
       '@tokensafe-ui/core':
         specifier: workspace:*
         version: link:../core
+      '@tokensafe-ui/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@tokensafe-ui/observer':
         specifier: workspace:*
         version: link:../observer
+      '@tokensafe-ui/oumv':
+        specifier: workspace:*
+        version: link:../oumv
       '@tokensafe-ui/patcher':
         specifier: workspace:*
         version: link:../patcher

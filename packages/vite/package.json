@@ -20,6 +20,8 @@
   "dependencies": {
     "@tokensafe-ui/core": "workspace:*",
     "@tokensafe-ui/observer": "workspace:*",
+    "@tokensafe-ui/oumv": "workspace:*",
+    "@tokensafe-ui/mcp": "workspace:*",
     "@tokensafe-ui/patcher": "workspace:*",
     "@babel/generator": "^7.26.5",
     "@babel/parser": "^7.26.5",

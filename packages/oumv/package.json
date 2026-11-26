@@ -17,6 +17,16 @@
       "import": "./dist/react.js",
       "require": "./dist/react.cjs"
     },
+    "./react-client": {
+      "types": "./dist/react-client.d.ts",
+      "import": "./dist/react-client.js",
+      "require": "./dist/react-client.cjs"
+    },
+    "./contracts": {
+      "types": "./dist/contracts.d.ts",
+      "import": "./dist/contracts.js",
+      "require": "./dist/contracts.cjs"
+    },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",

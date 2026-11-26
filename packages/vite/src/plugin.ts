@@ -1,26 +1,119 @@
-import type { Plugin, ViteDevServer } from 'vite';
+import type { Plugin, ResolvedConfig, ViteDevServer } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { transformAgentDomJsx } from './transformer.js';
 import { applyPatch, type ComponentPatch } from '@tokensafe-ui/patcher';
 import { testAction, testEffect, hotReloadComponent, activeInstances } from '@tokensafe-ui/core';
+import {
+  REACT_BRIDGE_PUBLIC_PATH,
+  REACT_BRIDGE_VIRTUAL_ID,
+  getReactBridgeClientCode,
+} from './react-bridge.js';
+import { createReactOumvController } from './react-rpc.js';
+
+export type TokensafeFrameworkMode = 'auto' | 'tokensafe-ui' | 'react';
 
 export interface TokensafeUiPluginOptions {
   enableRpc?: boolean;
   sessionToken?: string;
+  framework?: TokensafeFrameworkMode;
+  requireAuth?: boolean;
+}
+
+export function resolveFrameworkMode(
+  rootDir: string,
+  requested: TokensafeFrameworkMode = 'auto'
+): 'tokensafe-ui' | 'react' {
+  if (requested === 'react' || requested === 'tokensafe-ui') {
+    return requested;
+  }
+  try {
+    const pkgPath = path.join(rootDir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      const deps = pkg.dependencies || {};
+      const allDeps = { ...deps, ...(pkg.devDependencies || {}) };
+      if (allDeps.react && !deps['@tokensafe-ui/core'] && !deps['tokensafe-ui']) {
+        return 'react';
+      }
+    }
+  } catch {}
+  return 'tokensafe-ui';
+}
+
+function writeRuntimeDescriptor(
+  rootDir: string,
+  frontendEntry: Record<string, unknown>
+): void {
+  try {
+    const tokensafeDir = path.join(rootDir, '.tokensafe');
+    fs.mkdirSync(tokensafeDir, { recursive: true });
+    const runtimeFile = path.join(tokensafeDir, 'runtime.json');
+    let existing: Record<string, any> = {};
+    if (fs.existsSync(runtimeFile)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(runtimeFile, 'utf-8'));
+      } catch {}
+    }
+    existing.frontend = frontendEntry;
+    fs.writeFileSync(runtimeFile, JSON.stringify(existing, null, 2), 'utf-8');
+    try {
+      fs.chmodSync(runtimeFile, 0o600);
+    } catch {}
+  } catch {}
 }
 
 export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
   const enableRpc = options.enableRpc !== false;
   const sessionToken = options.sessionToken || crypto.randomBytes(16).toString('hex');
   let latestLiveSnapshot = 'view: empty\nelements: []';
+  let resolvedMode: 'tokensafe-ui' | 'react' = resolveFrameworkMode(process.cwd(), options.framework);
+  let isServeCommand = true;
 
   return {
     name: 'tokensafe-ui',
     enforce: 'pre',
 
+    configResolved(config: ResolvedConfig) {
+      isServeCommand = config.command === 'serve';
+      resolvedMode = resolveFrameworkMode(config.root || process.cwd(), options.framework);
+    },
+
+    resolveId(id: string) {
+      if (isServeCommand && resolvedMode === 'react' && id === REACT_BRIDGE_PUBLIC_PATH) {
+        return REACT_BRIDGE_VIRTUAL_ID;
+      }
+      return null;
+    },
+
+    load(id: string) {
+      if (isServeCommand && resolvedMode === 'react' && id === REACT_BRIDGE_VIRTUAL_ID) {
+        return getReactBridgeClientCode();
+      }
+      return null;
+    },
+
+    transformIndexHtml(html: string) {
+      if (!isServeCommand || !enableRpc || resolvedMode !== 'react') {
+        return html;
+      }
+      return {
+        html,
+        tags: [
+          {
+            tag: 'script',
+            attrs: { type: 'module', src: REACT_BRIDGE_PUBLIC_PATH },
+            injectTo: 'body' as const,
+          },
+        ],
+      };
+    },
+
     transform(code: string, id: string) {
+      if (resolvedMode === 'react') {
+        return null;
+      }
       if (id.endsWith('.tsx') || id.endsWith('.jsx')) {
         try {
           const res = transformAgentDomJsx(code, id);
@@ -37,6 +130,113 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
 
     configureServer(server: ViteDevServer) {
       if (!enableRpc) return;
+
+      const rootDir = server.config?.root || process.cwd();
+      resolvedMode = resolveFrameworkMode(rootDir, options.framework);
+
+      if (resolvedMode === 'react') {
+        const reactRpc = createReactOumvController({
+          rootDir,
+          sessionToken,
+          server,
+        });
+
+        const handleReactRpc = async (req: any, res: any) => {
+          if (req.method === 'OPTIONS') {
+            res.statusCode = 204;
+            res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-OUMV-Session-Token');
+            res.end();
+            return;
+          }
+          if (req.method !== 'POST') {
+            res.statusCode = 405;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Method not allowed' }));
+            return;
+          }
+
+          const providedToken = String(
+            req.headers?.['x-oumv-session-token'] ||
+              (typeof req.headers?.authorization === 'string' &&
+              req.headers.authorization.toLowerCase().startsWith('bearer ')
+                ? req.headers.authorization.slice(7).trim()
+                : '') ||
+              ''
+          );
+
+          if (
+            (options.requireAuth && providedToken !== sessionToken) ||
+            (providedToken && providedToken !== sessionToken)
+          ) {
+            res.statusCode = 401;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: { code: -32007, message: 'PERMISSION_DENIED: invalid OUMV session token' },
+              })
+            );
+            return;
+          }
+
+          let body = '';
+          req.on('data', (chunk: any) => {
+            body += chunk;
+          });
+
+          req.on('end', async () => {
+            res.setHeader('Content-Type', 'application/json');
+            try {
+              const payload = JSON.parse(body || '{}');
+              const out = await reactRpc.handleRpcPayload(payload);
+              res.statusCode = out.statusCode;
+              res.end(JSON.stringify(out.body));
+            } catch (err: any) {
+              res.statusCode = 400;
+              res.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: null,
+                  error: { code: -32700, message: `Parse error: ${err.message}` },
+                })
+              );
+            }
+          });
+        };
+
+        server.middlewares.use('/__oumv/rpc', handleReactRpc);
+        server.middlewares.use('/__tokensafe_ui/rpc', handleReactRpc);
+        server.middlewares.use('/__agent_dom/rpc', handleReactRpc);
+
+        const emitDescriptor = () => {
+          const addr = server.httpServer?.address();
+          const boundPort =
+            addr && typeof addr === 'object' && addr.port
+              ? addr.port
+              : server.config?.server?.port || 5173;
+          writeRuntimeDescriptor(rootDir, {
+            name: 'react',
+            version: reactRpc.reactVersion,
+            url: `http://localhost:${boundPort}/__oumv/rpc`,
+            sessionToken,
+            capabilities: {
+              observeLevels: ['L0', 'L1', 'L2', 'L3', 'L4'],
+              causality: true,
+              occ: true,
+              verify: true,
+            },
+          });
+        };
+
+        if (server.httpServer) {
+          server.httpServer.once('listening', emitDescriptor);
+        } else {
+          emitDescriptor();
+        }
+        return;
+      }
 
       // Handle custom client snapshot events from browser HMR
       const handleSnapshot = (data: any) => {
@@ -445,32 +645,19 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
       server.middlewares.use('/__tokensafe_ui/rpc', handleRpc);
       server.middlewares.use('/__agent_dom/rpc', handleRpc);
 
-      // Register .tokensafe/runtime.json descriptor
-      const rootDir = server.config?.root || process.cwd();
-      const tokensafeDir = path.join(rootDir, '.tokensafe');
       const writeDescriptor = () => {
-        try {
-          fs.mkdirSync(tokensafeDir, { recursive: true });
-          const runtimeFile = path.join(tokensafeDir, 'runtime.json');
-          let existing: any = {};
-          if (fs.existsSync(runtimeFile)) {
-            try { existing = JSON.parse(fs.readFileSync(runtimeFile, 'utf-8')); } catch {}
-          }
-          const port = server.config?.server?.port || 5173;
-          existing.frontend = {
-            name: 'tokensafe-ui',
-            version: '0.1.16',
-            url: `http://localhost:${port}/__oumv/rpc`,
-            sessionToken,
-            capabilities: {
-              observeLevels: ['L0', 'L1', 'L2'],
-              causality: true,
-              occ: true,
-            },
-          };
-          fs.writeFileSync(runtimeFile, JSON.stringify(existing, null, 2), 'utf-8');
-          try { fs.chmodSync(runtimeFile, 0o600); } catch {}
-        } catch {}
+        const port = server.config?.server?.port || 5173;
+        writeRuntimeDescriptor(rootDir, {
+          name: 'tokensafe-ui',
+          version: '0.1.18',
+          url: `http://localhost:${port}/__oumv/rpc`,
+          sessionToken,
+          capabilities: {
+            observeLevels: ['L0', 'L1', 'L2'],
+            causality: true,
+            occ: true,
+          },
+        });
       };
 
       if (server.httpServer) {
@@ -480,6 +667,10 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
       }
     },
   };
+}
+
+export function tokensafeReact(options: Omit<TokensafeUiPluginOptions, 'framework'> = {}): Plugin {
+  return tokensafeUi({ ...options, framework: 'react' });
 }
 
 export const agentDom = tokensafeUi;
