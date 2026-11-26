@@ -18,7 +18,7 @@ import {
 
 const SERVER_ATTACHED_SYM = Symbol.for('tokensafe.oumv.attached');
 
-export type TokensafeFrameworkMode = 'auto' | 'tokensafe-ui' | 'react';
+export type TokensafeFrameworkMode = 'auto' | 'tokensafe-ui' | 'react' | 'vue';
 
 export interface TokensafeUiPluginOptions {
   enableRpc?: boolean;
@@ -30,8 +30,8 @@ export interface TokensafeUiPluginOptions {
 export function resolveFrameworkMode(
   rootDir: string,
   requested: TokensafeFrameworkMode = 'auto'
-): 'tokensafe-ui' | 'react' {
-  if (requested === 'react' || requested === 'tokensafe-ui') {
+): 'tokensafe-ui' | 'react' | 'vue' {
+  if (requested === 'react' || requested === 'tokensafe-ui' || requested === 'vue') {
     return requested;
   }
   try {
@@ -40,8 +40,13 @@ export function resolveFrameworkMode(
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
       const deps = pkg.dependencies || {};
       const allDeps = { ...deps, ...(pkg.devDependencies || {}) };
-      if (allDeps.react && !deps['@tokensafe-ui/core'] && !deps['tokensafe-ui']) {
+      // The framework wins even when tokensafe-ui is installed: a React app that
+      // adds this plugin must NOT be JSX-rewritten into tokensafe-ui's own h().
+      if (allDeps.react || allDeps['react-dom'] || allDeps.next) {
         return 'react';
+      }
+      if (allDeps.vue || allDeps.nuxt) {
+        return 'vue';
       }
     }
   } catch {}
@@ -59,7 +64,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
   const enableRpc = options.enableRpc !== false;
   const sessionToken = options.sessionToken || crypto.randomBytes(16).toString('hex');
   let latestLiveSnapshot = 'view: empty\nelements: []';
-  let resolvedMode: 'tokensafe-ui' | 'react' = resolveFrameworkMode(process.cwd(), options.framework);
+  let resolvedMode: 'tokensafe-ui' | 'react' | 'vue' = resolveFrameworkMode(process.cwd(), options.framework);
   let isServeCommand = true;
 
   return {
@@ -105,7 +110,9 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
     },
 
     transform(code: string, id: string) {
-      if (resolvedMode === 'react') {
+      // Only a native tokensafe-ui app gets its JSX rewritten into h(); React and
+      // Vue apps keep their own JSX runtime untouched.
+      if (resolvedMode !== 'tokensafe-ui') {
         return null;
       }
       if (id.endsWith('.tsx') || id.endsWith('.jsx')) {
@@ -272,17 +279,21 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                     jsonrpc: '2.0',
                     id: payload.id ?? 1,
                     result: {
-                      protocolVersion: '1.0.0',
+                      protocolVersion: '1.1.0',
+                      profile: 'frontend',
                       runtimeInfo: {
                         name: 'tokensafe-ui',
-                        version: '0.1.16',
+                        version: '0.1.18',
                         framework: 'SolidJS + TokenSafe',
                       },
+                      // Honest capability set: the native bridge serves L0-L2 from
+                      // registered instances. It does not read source or trace
+                      // requests, so L3/L4 are not advertised.
                       capabilities: {
-                        observe: { levels: ['L0', 'L1', 'L2'] },
-                        understand: { causality: true },
-                        mutate: { occ: true },
-                        verify: { synthetic: true },
+                        observe: { levels: ['L0', 'L1', 'L2'], formats: ['yaml', 'json'] },
+                        understand: { causality: true, signalsGraph: true, impactAnalysis: true },
+                        mutate: { occ: true, syntaxGuard: false, ephemeralDispatch: true },
+                        verify: { multiMetric: true, surfaceDiff: true },
                       },
                     },
                   })

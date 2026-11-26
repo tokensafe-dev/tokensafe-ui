@@ -424,7 +424,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
       case 'oumv/handshake':
       case 'handshake': {
         return rpcSuccess(id, {
-          protocolVersion: '1.0.0',
+          protocolVersion: '1.1.0',
+          profile: 'frontend',
           runtimeInfo: {
             name: 'react',
             version: reactVersion,

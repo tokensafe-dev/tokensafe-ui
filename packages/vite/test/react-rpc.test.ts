@@ -65,6 +65,47 @@ export default function App() {
     expect(getReactBridgeClientCode()).toContain('__OUMV_REACT_BRIDGE_INSTALLED__');
   });
 
+  it('keeps React mode when the app also installs tokensafe-ui', () => {
+    // Regression: a React app following the docs installs tokensafe-ui, which used
+    // to flip detection to native mode and rewrite its JSX into h() — breaking the app.
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({
+        name: 'react-with-tokensafe',
+        dependencies: { react: '^18.3.1', 'react-dom': '^18.3.1', 'tokensafe-ui': '^0.1.19' },
+      }),
+      'utf-8'
+    );
+
+    expect(resolveFrameworkMode(tmpDir, 'auto')).toBe('react');
+
+    const plugin = tokensafeReact();
+    (plugin as any).configResolved({ command: 'serve', root: tmpDir });
+    const transformed = (plugin as any).transform(
+      'export function App() { return <div />; }',
+      path.join(tmpDir, 'src', 'App.tsx')
+    );
+    expect(transformed).toBeNull();
+
+    // An explicit framework choice still wins over detection.
+    expect(resolveFrameworkMode(tmpDir, 'tokensafe-ui')).toBe('tokensafe-ui');
+  });
+
+  it('detects Vue projects and leaves their templates alone', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'vue-app', dependencies: { vue: '^3.4.0' } }),
+      'utf-8'
+    );
+
+    expect(resolveFrameworkMode(tmpDir, 'auto')).toBe('vue');
+    const plugin = tokensafeReact();
+    (plugin as any).configResolved({ command: 'serve', root: tmpDir });
+    expect(
+      (plugin as any).transform('export default { render() { return null; } }', path.join(tmpDir, 'src', 'App.tsx'))
+    ).toBeNull();
+  });
+
   it('serves handshake, static fallback observe, impact, OCC mutate, and honest verify when browser offline', async () => {
     const controller = createReactOumvController({ rootDir: tmpDir });
 
