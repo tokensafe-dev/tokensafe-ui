@@ -49,7 +49,7 @@ const ERR_RESOURCE_NOT_FOUND = -32009;
 const ERR_VALIDATION_FAILED = -32011;
 const ERR_INVALID_PARAMS = -32602;
 
-const PROTOCOL_VERSION = '1.3.0';
+const PROTOCOL_VERSION = '1.5.0';
 
 function sha256(content: string): string {
   return 'sha256:' + crypto.createHash('sha256').update(content, 'utf-8').digest('hex');

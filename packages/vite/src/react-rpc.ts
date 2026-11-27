@@ -622,21 +622,27 @@ export function createReactOumvController(options: ReactRpcOptions) {
           const [majorRaw, minorRaw] = requestedVersion.split('.');
           const major = Number(majorRaw);
           const minor = Number(minorRaw);
-          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 4) {
+          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 5) {
             return rpcError(
               id,
               ERR_UNSUPPORTED,
-              `UNSUPPORTED_CAPABILITY: protocol version ${requestedVersion} (this runtime serves 1.4.0)`,
+              `UNSUPPORTED_CAPABILITY: protocol version ${requestedVersion} (this runtime serves 1.5.0)`,
             );
           }
         }
         const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
-        sessions.set(sessionId, Date.now() + SESSION_TTL_SECONDS * 1000);
+        // Wire 1.5.0: honour a client-requested lifetime, clamped to [1, 86400].
+        const rawTtl = Number(params?.sessionTtlSeconds);
+        const grantedTtl =
+          Number.isFinite(rawTtl) && rawTtl > 0 ? Math.min(Math.max(Math.floor(rawTtl), 1), 86400) : SESSION_TTL_SECONDS;
+        sessions.set(sessionId, Date.now() + grantedTtl * 1000);
         const capabilities = {
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, impactAnalysis: true },
           mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true },
           verify: { multiMetric: true, surfaceDiff: true },
+          // Wire 1.5.0: the handshake honours sessionTtlSeconds and echoes ttlSeconds.
+          sessions: { ttlSeconds: true },
         };
         // §3.1: narrow the advertised set to the client's request; an empty
         // intersection stays empty instead of being widened back.
@@ -652,10 +658,10 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.4.0',
+          protocolVersion: '1.5.0',
           profile: 'frontend',
           sessionId,
-          ttlSeconds: SESSION_TTL_SECONDS,
+          ttlSeconds: grantedTtl,
           runtimeInfo: {
             name: 'react',
             version: reactVersion,

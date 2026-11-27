@@ -574,7 +574,7 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
         const [majorRaw, minorRaw] = requested.split('.');
         const major = Number(majorRaw);
         const minor = Number(minorRaw);
-        if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 3) {
+        if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 5) {
           const err: any = new Error(
             `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.3.0)`,
           );

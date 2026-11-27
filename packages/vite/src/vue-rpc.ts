@@ -731,17 +731,23 @@ export function createVueOumvController(options: VueRpcOptions) {
           const [majorRaw, minorRaw] = requested.split('.');
           const major = Number(majorRaw);
           const minor = Number(minorRaw);
-          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 4) {
-            return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.4.0)`);
+          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 5) {
+            return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.5.0)`);
           }
         }
         const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
-        sessions.set(sessionId, Date.now() + SESSION_TTL_SECONDS * 1000);
+        // Wire 1.5.0: honour a client-requested lifetime, clamped to [1, 86400].
+        const rawTtl = Number(params?.sessionTtlSeconds);
+        const grantedTtl =
+          Number.isFinite(rawTtl) && rawTtl > 0 ? Math.min(Math.max(Math.floor(rawTtl), 1), 86400) : SESSION_TTL_SECONDS;
+        sessions.set(sessionId, Date.now() + grantedTtl * 1000);
         const capabilities: any = {
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, componentGraph: true, impactAnalysis: true },
           mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true },
           verify: { multiMetric: true, surfaceDiff: true },
+          // Wire 1.5.0: the handshake honours sessionTtlSeconds and echoes ttlSeconds.
+          sessions: { ttlSeconds: true },
         };
         const requestedCapabilities = params?.requestedCapabilities;
         if (requestedCapabilities && typeof requestedCapabilities === 'object') {
@@ -751,10 +757,10 @@ export function createVueOumvController(options: VueRpcOptions) {
           if (formats.length > 0) capabilities.observe.formats = capabilities.observe.formats.filter((f: string) => formats.includes(f));
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.4.0',
+          protocolVersion: '1.5.0',
           profile: 'frontend',
           sessionId,
-          ttlSeconds: SESSION_TTL_SECONDS,
+          ttlSeconds: grantedTtl,
           runtimeInfo: { name: 'vue', version: vueVersion, framework: `Vue ${vueVersion} + Vite` },
           capabilities,
         });
