@@ -322,7 +322,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                     jsonrpc: '2.0',
                     id: payload.id ?? 1,
                     result: {
-                      protocolVersion: '1.3.0',
+                      protocolVersion: '1.4.0',
                       profile: 'frontend',
                       runtimeInfo: {
                         name: 'tokensafe-ui',

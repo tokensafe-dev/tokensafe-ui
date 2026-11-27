@@ -201,11 +201,13 @@ export async function runCli(argv = process.argv): Promise<void> {
       const port = flags['port'] ? Number(flags['port']) : undefined;
       const host = flags['host'] === 'true' ? true : flags['host'];
       const open = flags['open'] === 'true';
+      const framework = flags['framework'] === 'vue' ? 'vue' : flags['framework'] === 'react' ? 'react' : undefined;
       const server = await startZeroFootprintViteServer({
         rootDir,
         port: Number.isFinite(port) ? port : undefined,
         host,
         open,
+        framework,
       });
       await new Promise<void>((resolve) => {
         const shutdown = async () => {

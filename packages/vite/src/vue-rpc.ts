@@ -731,8 +731,8 @@ export function createVueOumvController(options: VueRpcOptions) {
           const [majorRaw, minorRaw] = requested.split('.');
           const major = Number(majorRaw);
           const minor = Number(minorRaw);
-          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 3) {
-            return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.3.0)`);
+          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 4) {
+            return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.4.0)`);
           }
         }
         const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
@@ -751,7 +751,7 @@ export function createVueOumvController(options: VueRpcOptions) {
           if (formats.length > 0) capabilities.observe.formats = capabilities.observe.formats.filter((f: string) => formats.includes(f));
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.3.0',
+          protocolVersion: '1.4.0',
           profile: 'frontend',
           sessionId,
           ttlSeconds: SESSION_TTL_SECONDS,

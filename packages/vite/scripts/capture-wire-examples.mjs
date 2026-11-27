@@ -38,7 +38,7 @@ async function capture(method, name, params, target = controller) {
     files.set(method, {
       method,
       profile: 'frontend',
-      specVersion: '1.3.0',
+      specVersion: '1.4.0',
       adapter: 'frontend/react',
       note: 'captured from the React/Vite controller without a browser tab; verify answers -32008 and L4 has no traces, which is the honest offline shape',
       cases: [],

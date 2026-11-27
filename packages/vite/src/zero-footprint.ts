@@ -35,9 +35,12 @@ export async function startZeroFootprintViteServer(
 ): Promise<ViteDevServer> {
   const rootDir = path.resolve(options.rootDir || process.cwd());
   const vite = await resolveProjectVite(rootDir);
+  // The mode must be forwarded: without it the plugin defaults to React and a Vue
+  // app gets the React controller and bridge.
   const plugin = tokensafeReact({
     enableRpc: options.enableRpc,
     sessionToken: options.sessionToken,
+    ...(options.framework ? { framework: options.framework } : {}),
   });
 
   const serverConfig: InlineConfig['server'] = {};
