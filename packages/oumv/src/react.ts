@@ -576,14 +576,14 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
         const minor = Number(minorRaw);
         if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 5) {
           const err: any = new Error(
-            `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.3.0)`,
+            `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.5.0)`,
           );
           err.code = -32006;
           throw err;
         }
       }
       return {
-        protocolVersion: '1.3.0',
+        protocolVersion: '1.5.0',
         profile: 'frontend' as const,
         sessionId: `sess-react-${Math.random().toString(36).slice(2, 10)}`,
         runtimeInfo: {

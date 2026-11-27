@@ -24,7 +24,7 @@ function rename(newName: string) {
 
 const sha = (text: string) => 'sha256:' + crypto.createHash('sha256').update(text, 'utf-8').digest('hex');
 
-describe('@tokensafe-ui/oumv - Vue Runtime Adapter (wire 1.3.0)', () => {
+describe('@tokensafe-ui/oumv - Vue Runtime Adapter (wire 1.5.0)', () => {
   let tmpDir: string;
   let testFile: string;
 
@@ -40,11 +40,11 @@ describe('@tokensafe-ui/oumv - Vue Runtime Adapter (wire 1.3.0)', () => {
     } catch {}
   });
 
-  it('performs the 1.3.0 handshake with profile and session, and rejects a foreign major', async () => {
+  it('performs the 1.5.0 handshake with profile and session, and rejects a foreign major', async () => {
     const adapter = createVueAdapter({ projectRoot: tmpDir });
     const handshake = await adapter.handshake();
 
-    expect(handshake.protocolVersion).toBe('1.3.0');
+    expect(handshake.protocolVersion).toBe('1.5.0');
     expect(handshake.profile).toBe('frontend');
     expect(handshake.sessionId).toMatch(/^sess-/);
     expect(handshake.runtimeInfo.name).toBe('vue');
@@ -253,7 +253,7 @@ describe('@tokensafe-ui/oumv - Vue Runtime Adapter (wire 1.3.0)', () => {
     expect(verified.scope.checked).toContain('counter:double');
 
     const l4 = await adapter.observe({ level: 'L4', componentId: 'counter' });
-    expect(l4.data.traces.length).toBe(1);
+    expect((l4.data as { traces: unknown[] }).traces.length).toBe(1);
   });
 
   it('answers impact and causality in the canonical understand envelope', async () => {
@@ -269,15 +269,15 @@ describe('@tokensafe-ui/oumv - Vue Runtime Adapter (wire 1.3.0)', () => {
     const impact = await adapter.understand({ query: 'impact', target: 'avatar' });
     expect(impact.query).toBe('impact');
     expect(impact.target).toBe('avatar');
-    expect(impact.impact.directlyAffected).toContain('header');
-    expect(impact.impact.indirectlyAffected).toContain('app');
+    expect(impact.impact!.directlyAffected).toContain('header');
+    expect(impact.impact!.indirectlyAffected).toContain('app');
 
     const causality = await adapter.understand({ query: 'causality', target: 'avatar' });
     expect(causality.query).toBe('causality');
-    expect(causality.causality.observed).toBe(false);
-    expect(causality.causality.note).toBeTruthy();
+    expect(causality.causality!.observed).toBe(false);
+    expect(causality.causality!.note).toBeTruthy();
 
     const graph = await adapter.understand({ query: 'dependencies' });
-    expect(graph.dependencyGraph.map((n: { component: string }) => n.component)).toContain('avatar');
+    expect(graph.dependencyGraph!.map((n: { component: string }) => n.component)).toContain('avatar');
   });
 });
