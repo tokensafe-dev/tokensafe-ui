@@ -414,6 +414,26 @@ export function createReactOumvController(options: ReactRpcOptions) {
     stateEvents.push({ seq: ++traceSeq, path, version, operation });
     if (stateEvents.length > MAX_TRACES) stateEvents.shift();
   };
+  // §2.6 (wire 1.6.0): build/HMR failures the dev server already observes flow
+  // on the push transports instead of dying in a swallowed catch block.
+  const diagnosticEvents: Array<{ seq: number; diagnostic: Record<string, unknown> }> = [];
+  const recordDiagnostic = (diagnostic: Record<string, unknown>) => {
+    if (!diagnostic || typeof diagnostic !== 'object') return;
+    const entry = {
+      seq: ++traceSeq,
+      diagnostic: {
+        severity: String(diagnostic.severity ?? 'error'),
+        source: String(diagnostic.source ?? 'hmr'),
+        message: String(diagnostic.message ?? ''),
+        ...(diagnostic.file ? { file: String(diagnostic.file) } : {}),
+        ...(Number.isFinite(Number(diagnostic.line)) ? { line: Number(diagnostic.line) } : {}),
+        ...(diagnostic.tool ? { tool: String(diagnostic.tool) } : {}),
+        ts: Date.now(),
+      },
+    };
+    diagnosticEvents.push(entry);
+    if (diagnosticEvents.length > MAX_TRACES) diagnosticEvents.shift();
+  };
   const getEventsSince = (seq: number) =>
     [
       ...traces
@@ -426,6 +446,9 @@ export function createReactOumvController(options: ReactRpcOptions) {
           type: 'state' as const,
           data: { path: event.path, version: event.version, operation: event.operation },
         })),
+      ...diagnosticEvents
+        .filter((event) => event.seq > seq)
+        .map((event) => ({ seq: event.seq, type: 'diagnostic' as const, data: event.diagnostic })),
     ].sort((a, b) => a.seq - b.seq);
 
   if (server) {
@@ -622,11 +645,11 @@ export function createReactOumvController(options: ReactRpcOptions) {
           const [majorRaw, minorRaw] = requestedVersion.split('.');
           const major = Number(majorRaw);
           const minor = Number(minorRaw);
-          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 5) {
+          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 6) {
             return rpcError(
               id,
               ERR_UNSUPPORTED,
-              `UNSUPPORTED_CAPABILITY: protocol version ${requestedVersion} (this runtime serves 1.5.0)`,
+              `UNSUPPORTED_CAPABILITY: protocol version ${requestedVersion} (this runtime serves 1.6.0)`,
             );
           }
         }
@@ -639,10 +662,11 @@ export function createReactOumvController(options: ReactRpcOptions) {
         const capabilities = {
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, impactAnalysis: true },
-          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true },
+          // Wire 1.6.0: preview advertises the §4.4 dry-run (same guard order, no write).
+          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true, preview: true },
           verify: { multiMetric: true, surfaceDiff: true },
-          // Wire 1.5.0: the handshake honours sessionTtlSeconds and echoes ttlSeconds.
-          sessions: { ttlSeconds: true },
+          // Wire 1.5.0/1.6.0: TTL negotiation, best-effort cancel, idempotent retries.
+          sessions: { ttlSeconds: true, cancel: true, idempotency: true },
         };
         // §3.1: narrow the advertised set to the client's request; an empty
         // intersection stays empty instead of being widened back.
@@ -658,7 +682,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.5.0',
+          protocolVersion: '1.6.0',
           profile: 'frontend',
           sessionId,
           ttlSeconds: grantedTtl,
@@ -1409,6 +1433,104 @@ export function createReactOumvController(options: ReactRpcOptions) {
         });
       }
 
+      case 'oumv/previewEdit': {
+        // §4.4 (wire 1.6.0): applyEdit's guard order as a dry-run, no bytes written.
+        if (isMutateDisabled(rootDir)) {
+          return rpcError(
+            id,
+            ERR_PERMISSION_DENIED,
+            'Workspace policy explicitly prohibits mutations (.tokensafe/oumv.json: permissions.mutate=false)'
+          );
+        }
+        const editItems: any[] = Array.isArray(params?.edits) && params.edits.length > 0 ? params.edits : [params];
+        if (editItems.length > 16) {
+          return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: batch must hold 1..16 items', {
+            reason: 'batch_size',
+          });
+        }
+        const previews: any[] = [];
+        for (const item of editItems) {
+          const relPath = String(item?.path || item?.filePath || '');
+          const mode = String(item?.mode || 'replace').toLowerCase();
+          const expectedVersion = item?.expectedVersion;
+          const replacement = item?.replacement ?? item?.source ?? '';
+          if (!relPath) {
+            return rpcError(id, ERR_INVALID_PARAMS, 'path is required');
+          }
+          if (!['replace', 'create', 'symbol', 'delete', 'rename', 'patch'].includes(mode)) {
+            return rpcError(id, -32006, `UNSUPPORTED_CAPABILITY: unknown preview mode ${JSON.stringify(mode)}`);
+          }
+          let resolved: string;
+          try {
+            resolved = validateProjectPath(relPath, rootDir);
+          } catch (err: any) {
+            return rpcError(id, ERR_SECURITY, err.message);
+          }
+          const exists = fs.existsSync(resolved) && fs.statSync(resolved).isFile();
+          if (mode === 'create') {
+            if (expectedVersion) {
+              return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion must be omitted for mode=create', {
+                reason: 'create_forbids_version',
+                path: relPath,
+              });
+            }
+            if (exists) {
+              return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: file already exists; use mode=replace with its version', {
+                reason: 'file_exists',
+                path: relPath,
+              });
+            }
+          } else {
+            if (!exists) {
+              return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
+            }
+            const currentText = fs.readFileSync(resolved, 'utf-8');
+            const currentVersion = 'sha256:' + crypto.createHash('sha256').update(currentText).digest('hex');
+            if (!expectedVersion || typeof expectedVersion !== 'string') {
+              return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion is required to preview an edit of an existing file', {
+                reason: 'expected_version_required',
+                path: relPath,
+                current: currentVersion,
+              });
+            }
+            if (expectedVersion !== currentVersion) {
+              return rpcError(id, ERR_CONFLICT, `CONFLICT_DETECTED: version mismatch: expected ${expectedVersion}, current is ${currentVersion}`, {
+                reason: 'version_mismatch',
+                path: relPath,
+              });
+            }
+          }
+          let syntaxCheck: Record<string, string> = { status: 'skipped', tool: '@babel/parser' };
+          if (mode !== 'delete' && mode !== 'rename') {
+            try {
+              parser.parse(String(replacement), { sourceType: 'unambiguous', plugins: ['typescript', 'jsx'] });
+              syntaxCheck = { status: 'passed', tool: '@babel/parser' };
+            } catch (err: any) {
+              return rpcError(id, ERR_SYNTAX, `SYNTAX_ERROR: pre-flight parse failed: ${err.message}`);
+            }
+          }
+          const currentText = exists ? fs.readFileSync(resolved, 'utf-8') : '';
+          const newVersion = 'sha256:' + crypto.createHash('sha256').update(String(replacement)).digest('hex');
+          previews.push({
+            path: relPath,
+            mode,
+            unchanged: currentText === String(replacement),
+            ...(exists ? { currentVersion: 'sha256:' + crypto.createHash('sha256').update(currentText).digest('hex') } : {}),
+            newVersion,
+            syntaxCheck,
+            wouldApply: true,
+          });
+        }
+        return rpcSuccess(id, { status: 'PREVIEW', applied: false, previews });
+      }
+
+      case 'oumv/cancel': {
+        // §3 best-effort: requests here are answered within one dispatch, so
+        // nothing is observably in-flight — the contract says that is a result.
+        if (params?.target === 'last') return rpcSuccess(id, { cancelled: false, finished: true });
+        return rpcSuccess(id, { cancelled: false, requestId: params?.requestId });
+      }
+
       case 'oumv/applyEdit':
       case 'oumv/mutate': {
         if (isMutateDisabled(rootDir)) {
@@ -1798,6 +1920,11 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
   const handleSingleRpc = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     const out = await dispatchRpc(payload);
+    // §2.1 (wire 1.6.0): echo params.requestId so agents can correlate replies.
+    const requestId = payload?.params?.requestId;
+    if (requestId && out && typeof out.body === 'object' && out.body !== null && !Array.isArray(out.body)) {
+      out.body = { requestId, ...out.body };
+    }
     return normalizeResult(String(payload?.method ?? ''), out);
   };
 
@@ -1869,6 +1996,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
     getTraces: () => traces.slice(),
     getTracesSince,
     getEventsSince,
+    // §2.6: the plugin forwards build/HMR failures the dev server already observes.
+    recordDiagnostic,
     reactVersion,
   };
 }

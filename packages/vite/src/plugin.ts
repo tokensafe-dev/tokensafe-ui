@@ -162,6 +162,34 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         const runtimeVersion =
           resolvedMode === 'react' ? (controller as any).reactVersion : (controller as any).vueVersion;
 
+        // §2.6 (wire 1.6.0): compile errors the dev server already observes —
+        // including HMR reloads — flow on the push transports instead of only
+        // lighting the browser overlay. transformRequest is invoked for every
+        // module load, so this captures build and HMR failures at one seam.
+        const recordDevDiagnostic = (err: any, url: string): void => {
+          const diagnostic: Record<string, unknown> = {
+            severity: 'error',
+            source: 'build',
+            message: String(err?.message ?? err ?? 'transform failed').slice(0, 500),
+            tool: 'vite',
+            ts: Date.now(),
+          };
+          const file = typeof url === 'string' ? url.replace(/^\//, '').split(/[?#]/)[0] : '';
+          if (file) diagnostic.file = file;
+          (controller as any).recordDiagnostic?.(diagnostic);
+        };
+        const transformRequest = typeof server.transformRequest === 'function' ? server.transformRequest.bind(server) : null;
+        if (transformRequest) {
+          (server as any).transformRequest = async (url: string, options?: any) => {
+            try {
+              return await transformRequest(url, options);
+            } catch (err: any) {
+              recordDevDiagnostic(err, url);
+              throw err;
+            }
+          };
+        }
+
         const isAuthorized = (req: any): boolean => {
           const providedToken = String(
             req.headers?.['x-oumv-session-token'] ||

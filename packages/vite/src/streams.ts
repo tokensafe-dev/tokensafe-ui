@@ -34,7 +34,7 @@ export interface StreamTransportOptions {
   /** Trace + state events in one monotonic id space (canonical when present). */
   getEventsSince?: (
     seq: number
-  ) => Array<{ seq: number; type: 'trace' | 'state'; data: Record<string, unknown> }>;
+  ) => Array<{ seq: number; type: 'trace' | 'state' | 'diagnostic'; data: Record<string, unknown> }>;
   /** Same dispatcher as POST /__oumv/rpc. */
   handleRpcPayload: (payload: any) => Promise<{ statusCode: number; body: any }>;
   heartbeatMs?: number;
@@ -327,8 +327,9 @@ export function attachStreamTransports(options: StreamTransportOptions): () => v
     options.httpServer.on('upgrade', handleUpgrade);
   }
 
-  // Push new traces/states to handshaken WS peers: `notifications/oumv.trace`
-  // and `notifications/oumv.state` (spec §2.4).
+  // Push new traces/states/diagnostics to handshaken WS peers:
+  // `notifications/oumv.trace`, `notifications/oumv.state` and
+  // `notifications/oumv.diagnostic` (spec §2.4/§2.6).
   const notify = setInterval(() => {
     if (peers.length === 0) return;
     for (const peer of peers) {
@@ -338,6 +339,8 @@ export function attachStreamTransports(options: StreamTransportOptions): () => v
         for (const event of options.getEventsSince(cursor)) {
           if (event.type === 'state') {
             peer.notify('notifications/oumv.state', { sessionId: peer.sessionId, ...event.data });
+          } else if (event.type === 'diagnostic') {
+            peer.notify('notifications/oumv.diagnostic', { sessionId: peer.sessionId, ...event.data });
           } else {
             peer.notify('notifications/oumv.trace', { sessionId: peer.sessionId, trace: event.data });
           }

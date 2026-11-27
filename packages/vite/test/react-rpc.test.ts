@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import {
@@ -464,4 +465,36 @@ export default function App() {
     const global = await adapter.getSource({ path: 'src/store.ts', symbol: 'helper' });
     expect(global.source).toContain('return 1');
   });
+
+  describe('wire 1.6.0', () => {
+    it('previews an edit without writing bytes', async () => {
+      const fakeServer: any = { ws: { on: () => {}, send: () => {} } };
+      const controller = createReactOumvController({ rootDir: tmpDir, server: fakeServer });
+      const handshake = await controller.handleRpcPayload({ id: 1, method: 'oumv/handshake', params: { protocolVersion: '1.6.0' } });
+      const sessionId = handshake.body.result.sessionId;
+      expect(handshake.body.result.capabilities.mutate.preview).toBe(true);
+      expect(handshake.body.result.capabilities.sessions.cancel).toBe(true);
+
+      const file = path.join(tmpDir, 'PreviewTarget.tsx');
+      fs.writeFileSync(file, 'export const value = 41;\n');
+      const version = 'sha256:' + createHash('sha256').update(fs.readFileSync(file, 'utf-8')).digest('hex');
+      const preview = await controller.handleRpcPayload({
+        id: 2,
+        method: 'oumv/previewEdit',
+        params: { sessionId, path: 'PreviewTarget.tsx', mode: 'replace', replacement: 'export const value = 42;\n', expectedVersion: version, requestId: 'op-42' },
+      });
+      const result = preview.body.result;
+      expect(result.status).toBe('PREVIEW');
+      expect(result.applied).toBe(false);
+      expect(result.previews[0].wouldApply).toBe(true);
+      expect(result.previews[0].newVersion).not.toBe(version);
+      expect(preview.body.requestId).toBe('op-42');
+      expect(fs.readFileSync(file, 'utf-8')).toBe('export const value = 41;\n');
+
+      // §3: cancel is best-effort and never an error.
+      const cancel = await controller.handleRpcPayload({ id: 3, method: 'oumv/cancel', params: { sessionId, requestId: 'nope' } });
+      expect(cancel.body.result.cancelled).toBe(false);
+    });
+  });
+
 });

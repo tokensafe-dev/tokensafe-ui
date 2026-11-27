@@ -59,7 +59,7 @@ function bump() {
 </script>
 `;
 
-describe('@tokensafe-ui/vite - Vue OUMV support (wire 1.5.0)', () => {
+describe('@tokensafe-ui/vite - Vue OUMV support (wire 1.6.0)', () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -108,7 +108,7 @@ describe('@tokensafe-ui/vite - Vue OUMV support (wire 1.5.0)', () => {
       params: { protocolVersion: '1.0.0' },
     });
     const result = handshake.body.result;
-    expect(result.protocolVersion).toBe('1.5.0');
+    expect(result.protocolVersion).toBe('1.6.0');
     expect(result.profile).toBe('frontend');
     expect(result.sessionId).toMatch(/^sess-/);
     expect(result.capabilities.observe.levels).toContain('L3');

@@ -511,6 +511,25 @@ export function createVueOumvController(options: VueRpcOptions) {
     stateEvents.push({ seq: ++traceSeq, path, version, operation });
     if (stateEvents.length > MAX_TRACES) stateEvents.shift();
   };
+  // §2.6 (wire 1.6.0): dev-server build/HMR failures flow on the push transports.
+  const diagnosticEvents: Array<{ seq: number; diagnostic: Record<string, unknown> }> = [];
+  const recordDiagnostic = (diagnostic: Record<string, unknown>) => {
+    if (!diagnostic || typeof diagnostic !== 'object') return;
+    const entry = {
+      seq: ++traceSeq,
+      diagnostic: {
+        severity: String(diagnostic.severity ?? 'error'),
+        source: String(diagnostic.source ?? 'hmr'),
+        message: String(diagnostic.message ?? ''),
+        ...(diagnostic.file ? { file: String(diagnostic.file) } : {}),
+        ...(Number.isFinite(Number(diagnostic.line)) ? { line: Number(diagnostic.line) } : {}),
+        ...(diagnostic.tool ? { tool: String(diagnostic.tool) } : {}),
+        ts: Date.now(),
+      },
+    };
+    diagnosticEvents.push(entry);
+    if (diagnosticEvents.length > MAX_TRACES) diagnosticEvents.shift();
+  };
   const getEventsSince = (seq: number) =>
     [
       ...traces
@@ -523,6 +542,9 @@ export function createVueOumvController(options: VueRpcOptions) {
           type: 'state' as const,
           data: { path: event.path, version: event.version, operation: event.operation },
         })),
+      ...diagnosticEvents
+        .filter((event) => event.seq > seq)
+        .map((event) => ({ seq: event.seq, type: 'diagnostic' as const, data: event.diagnostic })),
     ].sort((a, b) => a.seq - b.seq);
 
   if (server) {
@@ -731,8 +753,8 @@ export function createVueOumvController(options: VueRpcOptions) {
           const [majorRaw, minorRaw] = requested.split('.');
           const major = Number(majorRaw);
           const minor = Number(minorRaw);
-          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 5) {
-            return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.5.0)`);
+          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 6) {
+            return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.6.0)`);
           }
         }
         const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
@@ -744,10 +766,10 @@ export function createVueOumvController(options: VueRpcOptions) {
         const capabilities: any = {
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, componentGraph: true, impactAnalysis: true },
-          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true },
+          mutate: { occ: true, syntaxGuard: true, preview: true, ephemeralDispatch: true },
           verify: { multiMetric: true, surfaceDiff: true },
           // Wire 1.5.0: the handshake honours sessionTtlSeconds and echoes ttlSeconds.
-          sessions: { ttlSeconds: true },
+          sessions: { ttlSeconds: true, cancel: true, idempotency: true },
         };
         const requestedCapabilities = params?.requestedCapabilities;
         if (requestedCapabilities && typeof requestedCapabilities === 'object') {
@@ -757,7 +779,7 @@ export function createVueOumvController(options: VueRpcOptions) {
           if (formats.length > 0) capabilities.observe.formats = capabilities.observe.formats.filter((f: string) => formats.includes(f));
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.5.0',
+          protocolVersion: '1.6.0',
           profile: 'frontend',
           sessionId,
           ttlSeconds: grantedTtl,
@@ -982,6 +1004,158 @@ export function createVueOumvController(options: VueRpcOptions) {
           endLine: to,
         });
       }
+
+      case 'oumv/previewEdit': {
+
+
+        // §4.4 (wire 1.6.0): dry-run of applyEdit — same guard order, no bytes written.
+
+
+        const item = params ?? {};
+
+
+        const relPath = String(item?.path || item?.filePath || '');
+
+
+        const mode = String(item?.mode || 'replace').toLowerCase();
+
+
+        const expectedVersion = item?.expectedVersion;
+
+
+        const replacement = item?.replacement ?? item?.source ?? '';
+
+
+        if (!relPath) return rpcError(id, ERR_INVALID_PARAMS, 'path is required');
+
+
+        let resolved: string;
+
+
+        try {
+
+
+          resolved = validateProjectPath(relPath, rootDir);
+
+
+        } catch (err: any) {
+
+
+          return rpcError(id, ERR_SECURITY, err.message);
+
+
+        }
+
+
+        const exists = fs.existsSync(resolved) && fs.statSync(resolved).isFile();
+
+
+        if (mode === 'create') {
+
+
+          if (expectedVersion) {
+
+
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion must be omitted for mode=create', { reason: 'create_forbids_version', path: relPath });
+
+
+          }
+
+
+          if (exists) return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: file already exists', { reason: 'file_exists', path: relPath });
+
+
+        } else {
+
+
+          if (!exists) return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
+
+
+          const currentText = fs.readFileSync(resolved, 'utf-8');
+
+
+          const currentVersion = 'sha256:' + crypto.createHash('sha256').update(currentText).digest('hex');
+
+
+          if (!expectedVersion) {
+
+
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion is required', { reason: 'expected_version_required', path: relPath, current: currentVersion });
+
+
+          }
+
+
+          if (expectedVersion !== currentVersion) {
+
+
+            return rpcError(id, ERR_CONFLICT, `CONFLICT_DETECTED: version mismatch`, { reason: 'version_mismatch', path: relPath });
+
+
+          }
+
+
+        }
+
+
+        const currentText = exists ? fs.readFileSync(resolved, 'utf-8') : '';
+
+
+        return rpcSuccess(id, {
+
+
+          status: 'PREVIEW',
+
+
+          applied: false,
+
+
+          previews: [{
+
+
+            path: relPath,
+
+
+            mode,
+
+
+            unchanged: currentText === String(replacement),
+
+
+            ...(exists ? { currentVersion: 'sha256:' + crypto.createHash('sha256').update(currentText).digest('hex') } : {}),
+
+
+            newVersion: 'sha256:' + crypto.createHash('sha256').update(String(replacement)).digest('hex'),
+
+
+            wouldApply: true,
+
+
+          }],
+
+
+        });
+
+
+      }
+
+
+
+      case 'oumv/cancel': {
+
+
+        // §3 best-effort: single-dispatch runtime — nothing is observably in-flight.
+
+
+        if (params?.target === 'last') return rpcSuccess(id, { cancelled: false, finished: true });
+
+
+        return rpcSuccess(id, { cancelled: false, requestId: params?.requestId });
+
+
+      }
+
+
 
       case 'oumv/applyEdit':
       case 'oumv/mutate': {
@@ -1313,5 +1487,7 @@ export function createVueOumvController(options: VueRpcOptions) {
     getEventsSince,
     handleRpcPayload,
     isBrowserConnected,
+    // §2.6: the plugin forwards build/HMR failures the dev server already observes.
+    recordDiagnostic,
   };
 }
