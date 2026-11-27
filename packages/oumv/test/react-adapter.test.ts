@@ -49,7 +49,7 @@ export function Counter() {
     const adapter = createReactAdapter({ projectRoot: tmpDir });
     const handshake = await adapter.handshake();
 
-    expect(handshake.protocolVersion).toBe('1.0.0');
+    expect(handshake.protocolVersion).toBe('1.3.0');
     expect(handshake.runtimeInfo.name).toBe('react');
     expect(handshake.runtimeInfo.version).toBeDefined();
     expect(handshake.capabilities.observe.levels).toContain('L1');

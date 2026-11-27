@@ -568,8 +568,24 @@ export function createReactAdapter(config: ReactAdapterConfig = {}) {
     },
 
     async handshake(params?: any) {
+      // §11: serve our own MINOR and every earlier one; another MAJOR is -32006.
+      const requested = String(params?.protocolVersion ?? '').trim();
+      if (requested) {
+        const [majorRaw, minorRaw] = requested.split('.');
+        const major = Number(majorRaw);
+        const minor = Number(minorRaw);
+        if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 3) {
+          const err: any = new Error(
+            `UNSUPPORTED_CAPABILITY: protocol version ${requested} (this runtime serves 1.3.0)`,
+          );
+          err.code = -32006;
+          throw err;
+        }
+      }
       return {
-        protocolVersion: '1.0.0',
+        protocolVersion: '1.3.0',
+        profile: 'frontend' as const,
+        sessionId: `sess-react-${Math.random().toString(36).slice(2, 10)}`,
         runtimeInfo: {
           name: 'react',
           version: '18.x/19.x',

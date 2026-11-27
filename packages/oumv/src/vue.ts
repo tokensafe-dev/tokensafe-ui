@@ -88,7 +88,7 @@ export function createVueAdapter(config: VueAdapterConfig = {}) {
 
     async handshake(params?: any) {
       return {
-        protocolVersion: '1.0.0',
+        protocolVersion: '1.3.0',
         runtimeInfo: {
           name: 'vue',
           version: '3.x',

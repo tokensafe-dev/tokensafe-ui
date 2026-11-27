@@ -32,7 +32,7 @@ export function createAgentDomAdapter(config: OumvAdapterConfig = {}) {
 
     async handshake(params?: any) {
       return {
-        protocolVersion: '1.0.0',
+        protocolVersion: '1.3.0',
         runtimeInfo: {
           name: 'agent-dom',
           version: '0.3.0',

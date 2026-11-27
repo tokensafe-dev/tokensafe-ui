@@ -36,7 +36,7 @@ async function capture(method, name, params) {
     files.set(method, {
       method,
       profile: 'frontend',
-      specVersion: '1.1.0',
+      specVersion: '1.3.0',
       adapter: 'frontend/react',
       note: 'captured from the React/Vite controller without a browser tab; verify answers -32008 and L4 has no traces, which is the honest offline shape',
       cases: [],
@@ -47,11 +47,11 @@ async function capture(method, name, params) {
 }
 
 await capture('oumv/handshake', 'negotiates capabilities', {
-  protocolVersion: '1.1.0',
+  protocolVersion: '1.3.0',
   clientInfo: { name: 'oumv-examples', version: '1.0.0' },
 });
 await capture('oumv/handshake', 'narrows requested observe levels', {
-  protocolVersion: '1.1.0',
+  protocolVersion: '1.3.0',
   requestedCapabilities: { observe: { levels: ['L0', 'L1'] } },
 });
 await capture('oumv/observe', 'L0 pulse (yaml)', { level: 'L0' });

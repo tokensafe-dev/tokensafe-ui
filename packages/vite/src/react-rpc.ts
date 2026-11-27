@@ -591,6 +591,20 @@ export function createReactOumvController(options: ReactRpcOptions) {
     switch (method) {
       case 'oumv/handshake':
       case 'handshake': {
+        // §11: serve our own MINOR and every earlier one; another MAJOR is -32006.
+        const requestedVersion = String(params?.protocolVersion ?? '').trim();
+        if (requestedVersion) {
+          const [majorRaw, minorRaw] = requestedVersion.split('.');
+          const major = Number(majorRaw);
+          const minor = Number(minorRaw);
+          if (!Number.isInteger(major) || !Number.isInteger(minor) || major !== 1 || minor > 3) {
+            return rpcError(
+              id,
+              ERR_UNSUPPORTED,
+              `UNSUPPORTED_CAPABILITY: protocol version ${requestedVersion} (this runtime serves 1.3.0)`,
+            );
+          }
+        }
         const sessionId = `sess-${crypto.randomBytes(8).toString('hex')}`;
         sessions.set(sessionId, Date.now() + SESSION_TTL_SECONDS * 1000);
         const capabilities = {
@@ -613,7 +627,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
         }
         return rpcSuccess(id, {
-          protocolVersion: '1.2.0',
+          protocolVersion: '1.3.0',
           profile: 'frontend',
           sessionId,
           ttlSeconds: SESSION_TTL_SECONDS,
@@ -628,6 +642,9 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
       case 'oumv/observe': {
         const level = String(params?.level || 'L0').toUpperCase();
+        if (!['L0', 'L1', 'L2', 'L3', 'L4'].includes(level)) {
+          return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: unknown observe level ${level}`);
+        }
         const defaultFormat = level === 'L0' || level === 'L1' ? 'yaml' : 'json';
         const format = String(params?.format || defaultFormat).toLowerCase() as 'yaml' | 'json' | 'sexp';
         const target = String(params?.componentId || params?.target || '').trim();
@@ -1324,6 +1341,11 @@ export function createReactOumvController(options: ReactRpcOptions) {
         const fullSource = fs.readFileSync(resolved, 'utf-8');
         const version = 'sha256:' + crypto.createHash('sha256').update(fullSource).digest('hex');
 
+        const ifVersion = String(params?.ifVersion || '').trim();
+        if (ifVersion && ifVersion === version) {
+          return rpcSuccess(id, { path: path.relative(rootDir, resolved), version, unchanged: true });
+        }
+
         if (symbol) {
           const sliced = extractSymbolRange(fullSource, symbol);
           if (sliced) {
@@ -1337,15 +1359,21 @@ export function createReactOumvController(options: ReactRpcOptions) {
               endLine: sliced.endLine,
             });
           }
+          // §4.3: an unknown symbol is -32009, never the whole file under a label.
+          return rpcError(id, ERR_RESOURCE_NOT_FOUND, `RESOURCE_NOT_FOUND: symbol ${symbol} not found`);
         }
 
+        const allLines = fullSource.split('\n');
+        const windowStart = Math.max(1, Number(params?.startLine) || 1);
+        let windowEnd = Number(params?.endLine) || allLines.length;
+        windowEnd = Math.min(Math.max(windowEnd, windowStart), allLines.length);
         return rpcSuccess(id, {
-          symbol: symbol || undefined,
+          symbol: undefined,
           path: path.relative(rootDir, resolved),
           filePath: path.relative(rootDir, resolved),
           version,
-          source: fullSource,
-          startLine: 1,
+          source: allLines.slice(windowStart - 1, windowEnd).join('\n'),
+          startLine: windowStart,
           endLine: fullSource.split('\n').length,
         });
       }
@@ -1368,7 +1396,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
         if (!relPath) {
           return rpcError(id, ERR_INVALID_PARAMS, 'path is required');
         }
-        if (!['replace', 'create', 'symbol', 'delete', 'rename'].includes(mode)) {
+        if (!['replace', 'create', 'symbol', 'delete', 'rename', 'patch'].includes(mode)) {
           return rpcError(id, -32006, `UNSUPPORTED_CAPABILITY: unknown applyEdit mode ${JSON.stringify(mode)}`);
         }
 
@@ -1410,6 +1438,67 @@ export function createReactOumvController(options: ReactRpcOptions) {
             newVersion: 'sha256:' + crypto.createHash('sha256').update(newSource).digest('hex'),
             syntaxCheck: { status: 'passed', tool: '@babel/parser' },
             created: true,
+          });
+        }
+
+        // patch mode (spec §4.3, wire 1.3.0): splice exact snippets under OCC,
+        // with no bytes written when a hunk fails.
+        if (mode === 'patch') {
+          if (!fs.existsSync(resolved)) {
+            return rpcError(id, ERR_RESOURCE_NOT_FOUND, `File not found: ${relPath}`);
+          }
+          if (!expectedVersion || typeof expectedVersion !== 'string') {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: expectedVersion is required to edit an existing file', {
+              reason: 'expected_version_required',
+            });
+          }
+          const currentText = fs.readFileSync(resolved, 'utf-8');
+          const currentVersion = 'sha256:' + crypto.createHash('sha256').update(currentText).digest('hex');
+          if (expectedVersion !== currentVersion) {
+            return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: version mismatch on patch');
+          }
+          const hunks: any[] = Array.isArray(params?.hunks) ? params.hunks : [];
+          if (hunks.length === 0) {
+            return rpcError(id, ERR_VALIDATION_FAILED, 'VALIDATION_FAILED: hunks is required for mode=patch', {
+              reason: 'hunks_required',
+            });
+          }
+          let text = currentText;
+          for (let index = 0; index < hunks.length; index += 1) {
+            const hunk = hunks[index] ?? {};
+            const target = String(hunk.target ?? '');
+            const replacement = String(hunk.replacement ?? '');
+            if (!target) {
+              return rpcError(id, ERR_VALIDATION_FAILED, `VALIDATION_FAILED: hunk ${index} has an empty target`, {
+                reason: 'target_required',
+              });
+            }
+            const count = text.split(target).length - 1;
+            if (count === 0) {
+              return rpcError(id, ERR_RESOURCE_NOT_FOUND, `RESOURCE_NOT_FOUND: hunk ${index} target does not occur in the file`, {
+                reason: 'target_not_found',
+              });
+            }
+            if (count > 1 && !hunk.replaceAll) {
+              return rpcError(id, ERR_VALIDATION_FAILED, `VALIDATION_FAILED: hunk ${index} target occurs ${count} times`, {
+                reason: 'target_not_unique',
+                count,
+              });
+            }
+            text = hunk.replaceAll ? text.split(target).join(replacement) : text.replace(target, replacement);
+          }
+          try {
+            parser.parse(text, { sourceType: 'unambiguous', plugins: ['typescript', 'jsx'] });
+          } catch (err: any) {
+            return rpcError(id, ERR_SYNTAX, `SYNTAX_ERROR: pre-flight parse failed: ${err.message}`);
+          }
+          fs.writeFileSync(resolved, text, 'utf-8');
+          return rpcSuccess(id, {
+            status: 'APPLIED',
+            path: path.relative(rootDir, resolved),
+            newVersion: 'sha256:' + crypto.createHash('sha256').update(text).digest('hex'),
+            syntaxCheck: { status: 'passed', tool: '@babel/parser' },
+            hunksApplied: hunks.length,
           });
         }
 

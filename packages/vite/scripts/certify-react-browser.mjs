@@ -88,6 +88,8 @@ try {
     editTarget: process.env.OUMV_CERT_EDIT_TARGET || 'src/EditTarget.jsx',
     newFile: process.env.OUMV_CERT_NEW_FILE || 'src/Created_New.jsx',
     editContent: 'export const value = 42;\n',
+    editContentVersion: 'sha256:' + crypto.createHash('sha256').update('export const value = 42;\n').digest('hex'),
+    patchReplacement: 'export const value = 43;\n',
     brokenContent: 'export function Broken( {\n',
     l2Target: process.env.OUMV_CERT_L2_TARGET || 'App',
     l3Target: process.env.OUMV_CERT_L3_TARGET || 'src/EditTarget.jsx',

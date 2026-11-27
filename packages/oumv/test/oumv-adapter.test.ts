@@ -40,7 +40,7 @@ export const TaskCard = defineComponent({
     const adapter = createAgentDomAdapter({ projectRoot: tmpDir });
     const handshake = await adapter.handshake();
 
-    expect(handshake.protocolVersion).toBe('1.0.0');
+    expect(handshake.protocolVersion).toBe('1.3.0');
     expect(handshake.runtimeInfo.name).toBe('agent-dom');
     expect(handshake.capabilities.observe.levels).toContain('L1');
     expect(handshake.capabilities.understand.causality).toBe(true);

@@ -1,10 +1,10 @@
 {
   "adapterName": "frontend/react",
   "framework": "react",
-  "specVersion": "1.2.0",
-  "fixtureVersion": 6,
-  "total": 25,
-  "passed": 25,
+  "specVersion": "1.3.0",
+  "fixtureVersion": 7,
+  "total": 33,
+  "passed": 33,
   "failed": 0,
   "skipped": 0,
   "attainedLevel": 3,
@@ -115,12 +115,27 @@
       "status": "passed"
     },
     {
+      "id": "apply-edit-patch-target-missing",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-patch-splices",
+      "level": 2,
+      "status": "passed"
+    },
+    {
       "id": "verify-multi-step-runs-in-order",
       "level": 2,
       "status": "passed"
     },
     {
       "id": "apply-edit-replace-symbol",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-delete-forbids-replacement",
       "level": 2,
       "status": "passed"
     },
@@ -138,9 +153,34 @@
       "id": "observe-l1-pagination",
       "level": 1,
       "status": "passed"
+    },
+    {
+      "id": "apply-edit-unknown-mode-rejected",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-create-forbids-version",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "get-source-unknown-symbol-rejected",
+      "level": 2,
+      "status": "passed"
+    },
+    {
+      "id": "observe-unknown-level-rejected",
+      "level": 1,
+      "status": "passed"
+    },
+    {
+      "id": "handshake-rejects-unknown-version",
+      "level": 1,
+      "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-26T19:06:44.723Z",
+  "generatedAt": "2026-11-27T00:06:57.534Z",
   "environment": {
     "transport": "http",
     "profile": "frontend",
