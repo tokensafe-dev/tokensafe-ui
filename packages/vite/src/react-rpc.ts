@@ -1214,6 +1214,9 @@ export function createReactOumvController(options: ReactRpcOptions) {
           browserConnected: isBrowserConnected(),
           traces: filteredTraces,
           errors: snap?.errors || [],
+          // §2.6 (wire 1.6.0): the diagnostics the dev server already observed
+          // (build/HMR failures) ride on L4 for pull-based consumers too.
+          diagnostics: diagnosticEvents.map((event) => event.diagnostic).slice(-itemLimit),
           evidence: {
             provenance: 'runtime' as const,
             sourceAdapter: 'tokensafe-ui-react-vite',

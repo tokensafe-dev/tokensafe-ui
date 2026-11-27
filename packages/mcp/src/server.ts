@@ -639,8 +639,43 @@ export function createTokensafeMcpServer(config: McpServerConfig = {}) {
       }
 
       case 'tokensafe_get_errors': {
+        // Wire 1.6.0 (§2.6/§14): the diagnostics the dev server already observed
+        // (build/HMR compile failures + browser runtime errors) come from the
+        // live runtime's L4 observe. Without a live runtime the honest answer is
+        // an empty list with the reason — never a fabricated "no errors".
+        const response = await callDevServerRpc(devServerUrl, 'oumv/observe', { level: 'L4' });
+        const result = (response as any)?.result ?? {};
+        const diagnostics = Array.isArray(result?.data?.diagnostics) ? result.data.diagnostics : [];
+        const browserErrors = Array.isArray(result?.data?.errors) ? result.data.errors : [];
+        const errors = [
+          ...diagnostics.map((d: any) => ({
+            severity: String(d?.severity ?? 'error'),
+            source: String(d?.source ?? 'build'),
+            file: d?.file,
+            line: d?.line,
+            message: String(d?.message ?? ''),
+            tool: d?.tool,
+          })),
+          ...browserErrors.map((e: any) => ({
+            severity: 'error',
+            source: 'runtime',
+            message: String(e?.message ?? JSON.stringify(e)),
+            ...(e?.filename ? { file: e.filename } : {}),
+            ...(Number.isFinite(Number(e?.lineno)) ? { line: Number(e.lineno) } : {}),
+          })),
+        ];
         return {
-          content: [{ type: 'text', text: JSON.stringify({ errors: [] }) }],
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                errors,
+                count: errors.length,
+                liveRuntime: Boolean(response?.result),
+                ...(response?.result ? {} : { note: 'no live dev server runtime reachable — start `tokensafe dev` for compile and runtime diagnostics' }),
+              }),
+            },
+          ],
         };
       }
 

@@ -925,6 +925,8 @@ export function createVueOumvController(options: VueRpcOptions) {
           traces: page.page,
           count: page.page.length,
           total: traces.length,
+          // §2.6 (wire 1.6.0): dev-server build/HMR diagnostics ride on L4.
+          diagnostics: diagnosticEvents.map((event) => event.diagnostic).slice(-Math.max(1, params?.limit ?? 25)),
           ...(page.hasMore ? { hasMore: true, nextCursor: page.nextCursor } : {}),
         };
         return rpcSuccess(id, { level: 'L4', format, data, tokenEstimate: Math.ceil(JSON.stringify(data).length / 4) });
