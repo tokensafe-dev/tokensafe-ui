@@ -10,7 +10,7 @@ import { listOUMVComponentContracts, type OumvContractRecord, type OumvStreamTra
 // Loaded lazily: the React controller must not evaluate the native runtime (or its
 // solid-js dependency) just to serve observe/verify.
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
-import { getGlobalContractsPath } from './runtime-store.js';
+import { getCanonicalWorkspaceRoot, getGlobalContractsPath } from './runtime-store.js';
 
 function readSidecarContracts(rootDir: string): OumvContractRecord[] {
   const candidateFiles = [
@@ -347,7 +347,11 @@ function validateProjectPath(inputPath: string, projectRoot: string): string {
 }
 
 export function createReactOumvController(options: ReactRpcOptions) {
-  const { rootDir, server } = options;
+  // Every path the controller reports is relative to the canonical root. Without
+  // this, a symlinked root (macOS /var → /private/var, a linked checkout) leaks
+  // `../../..` into `path`/`backupPath`: the jail realpaths the file, not the root.
+  const rootDir = getCanonicalWorkspaceRoot(options.rootDir);
+  const { server } = options;
   const reactVersion = readReactVersion(rootDir);
   // applyEdit is the only path that needs the edit engine; warm it in the
   // background so the first mutation does not pay the bundle import.
@@ -402,6 +406,27 @@ export function createReactOumvController(options: ReactRpcOptions) {
   /** Traces newer than `seq` (SSE `Last-Event-ID` / WS notification cursor). */
   const getTracesSince = (seq: number): OumvStreamTrace[] =>
     traces.filter((trace) => trace.seq > seq);
+
+  // Mutations publish `state` on the same monotonic id space as traces, so SSE
+  // `Last-Event-ID` and WS notifications replay both in order (spec §2.3/§2.4).
+  const stateEvents: Array<{ seq: number; path: string; version: string; operation: string }> = [];
+  const recordState = (path: string, version: string, operation: string) => {
+    stateEvents.push({ seq: ++traceSeq, path, version, operation });
+    if (stateEvents.length > MAX_TRACES) stateEvents.shift();
+  };
+  const getEventsSince = (seq: number) =>
+    [
+      ...traces
+        .filter((trace) => trace.seq > seq)
+        .map((trace) => ({ seq: trace.seq, type: 'trace' as const, data: trace as Record<string, unknown> })),
+      ...stateEvents
+        .filter((event) => event.seq > seq)
+        .map((event) => ({
+          seq: event.seq,
+          type: 'state' as const,
+          data: { path: event.path, version: event.version, operation: event.operation },
+        })),
+    ].sort((a, b) => a.seq - b.seq);
 
   if (server) {
     server.ws.on('oumv:react-snapshot', (data: ReactBridgeSnapshot) => {
@@ -1791,7 +1816,22 @@ export function createReactOumvController(options: ReactRpcOptions) {
       return { statusCode: 200, body: responses };
     }
 
-    return handleSingleRpc(payload);
+    return handleSingleRpcWithState(payload);
+  };
+
+  // One hook for every editing method: the result is already persisted when the
+  // handler returns APPLIED, so the event never announces a mutation that failed.
+  const handleSingleRpcWithState = async (payload: any) => {
+    const out = await handleSingleRpc(payload);
+    const result = out.body?.result;
+    if (!Array.isArray(payload) && payload?.method === 'oumv/applyEdit' && result?.status === 'APPLIED') {
+      recordState(
+        String(result.path ?? payload.params?.path ?? ''),
+        String(result.newVersion ?? ''),
+        String(payload.params?.mode ?? 'replace').toLowerCase()
+      );
+    }
+    return out;
   };
 
   const callAdapterMethod = async (method: string, params: any = {}) => {
@@ -1822,6 +1862,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
     getLatestSnapshot: () => latestSnapshot,
     getTraces: () => traces.slice(),
     getTracesSince,
+    getEventsSince,
     reactVersion,
   };
 }

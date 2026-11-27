@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
 import { scanSourceForComponents } from '@tokensafe-ui/oumv/static';
+import { getCanonicalWorkspaceRoot } from './runtime-store.js';
 
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
 
@@ -444,7 +445,10 @@ function applyHunksToSource(source: string, hunks: Hunk[]): { source: string; hu
 }
 
 export function createVueOumvController(options: VueRpcOptions) {
-  const { rootDir, server } = options;
+  // Same canonical-root rule as the React controller: reported paths stay relative
+  // even when the root is reached through a symlink (macOS /var → /private/var).
+  const rootDir = getCanonicalWorkspaceRoot(options.rootDir);
+  const { server } = options;
   const packagePath = path.join(rootDir, 'package.json');
   let vueVersion = '3.x';
   try {
@@ -499,6 +503,27 @@ export function createVueOumvController(options: VueRpcOptions) {
     });
     if (traces.length > MAX_TRACES) traces.shift();
   };
+
+  // Mutations share the trace id space so SSE `Last-Event-ID` and WS
+  // notifications replay trace and state events in one ordered stream.
+  const stateEvents: Array<{ seq: number; path: string; version: string; operation: string }> = [];
+  const recordState = (path: string, version: string, operation: string) => {
+    stateEvents.push({ seq: ++traceSeq, path, version, operation });
+    if (stateEvents.length > MAX_TRACES) stateEvents.shift();
+  };
+  const getEventsSince = (seq: number) =>
+    [
+      ...traces
+        .filter((trace) => trace.seq > seq)
+        .map((trace) => ({ seq: trace.seq, type: 'trace' as const, data: trace as Record<string, unknown> })),
+      ...stateEvents
+        .filter((event) => event.seq > seq)
+        .map((event) => ({
+          seq: event.seq,
+          type: 'state' as const,
+          data: { path: event.path, version: event.version, operation: event.operation },
+        })),
+    ].sort((a, b) => a.seq - b.seq);
 
   if (server) {
     server.ws.on('oumv:vue-snapshot', (data: VueBridgeSnapshot) => {
@@ -1249,22 +1274,37 @@ export function createVueOumvController(options: VueRpcOptions) {
     }
   };
 
+  const dispatchWithState = async (payload: any): Promise<{ statusCode: number; body: any }> => {
+    const out = await dispatchOne(payload);
+    const result = out.body?.result;
+    if (payload?.method === 'oumv/applyEdit' && result?.status === 'APPLIED') {
+      // The handler only returns APPLIED after the bytes are on disk.
+      recordState(
+        String(result.path ?? payload.params?.path ?? ''),
+        String(result.newVersion ?? ''),
+        String(payload.params?.mode ?? 'replace').toLowerCase()
+      );
+    }
+    return out;
+  };
+
   const handleRpcPayload = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     if (Array.isArray(payload)) {
       const results: any[] = [];
       for (const item of payload) {
-        const out = await dispatchOne(item);
+        const out = await dispatchWithState(item);
         results.push(out.body);
       }
       return { statusCode: 200, body: results };
     }
-    return dispatchOne(payload);
+    return dispatchWithState(payload);
   };
 
   return {
     vueVersion,
     staticIndex,
     getTracesSince: (seq: number) => traces.filter((trace) => trace.seq > seq),
+    getEventsSince,
     handleRpcPayload,
     isBrowserConnected,
   };

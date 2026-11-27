@@ -31,6 +31,10 @@ export interface StreamTransportOptions {
   authorize: (req: IncomingMessage) => boolean;
   /** Traces newer than the cursor (monotonic `seq`). */
   getTracesSince: (seq: number) => OumvStreamTrace[];
+  /** Trace + state events in one monotonic id space (canonical when present). */
+  getEventsSince?: (
+    seq: number
+  ) => Array<{ seq: number; type: 'trace' | 'state'; data: Record<string, unknown> }>;
   /** Same dispatcher as POST /__oumv/rpc. */
   handleRpcPayload: (payload: any) => Promise<{ statusCode: number; body: any }>;
   heartbeatMs?: number;
@@ -217,6 +221,13 @@ export function attachStreamTransports(options: StreamTransportOptions): () => v
     if (!Number.isFinite(cursor)) cursor = 0;
 
     const flush = () => {
+      if (options.getEventsSince) {
+        for (const event of options.getEventsSince(cursor)) {
+          res.write(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`);
+          cursor = event.seq;
+        }
+        return;
+      }
       for (const trace of options.getTracesSince(cursor)) {
         res.write(`id: ${trace.seq}\nevent: trace\ndata: ${JSON.stringify(trace)}\n\n`);
         cursor = trace.seq;
@@ -316,12 +327,24 @@ export function attachStreamTransports(options: StreamTransportOptions): () => v
     options.httpServer.on('upgrade', handleUpgrade);
   }
 
-  // Push new traces to handshaken WS peers as `notifications/oumv.trace`.
+  // Push new traces/states to handshaken WS peers: `notifications/oumv.trace`
+  // and `notifications/oumv.state` (spec §2.4).
   const notify = setInterval(() => {
     if (peers.length === 0) return;
     for (const peer of peers) {
       if (!peer.sessionId || peer.closed) continue;
       const cursor = cursors.get(peer) ?? 0;
+      if (options.getEventsSince) {
+        for (const event of options.getEventsSince(cursor)) {
+          if (event.type === 'state') {
+            peer.notify('notifications/oumv.state', { sessionId: peer.sessionId, ...event.data });
+          } else {
+            peer.notify('notifications/oumv.trace', { sessionId: peer.sessionId, trace: event.data });
+          }
+          cursors.set(peer, event.seq);
+        }
+        continue;
+      }
       for (const trace of options.getTracesSince(cursor)) {
         peer.notify('notifications/oumv.trace', { sessionId: peer.sessionId, trace });
         cursors.set(peer, trace.seq);

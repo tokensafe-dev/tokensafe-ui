@@ -17,12 +17,14 @@ interface Harness {
   url: string;
   traces: OumvStreamTrace[];
   pushTrace: (method: string) => void;
+  pushState: (path: string, operation: string) => void;
   received: any[];
   close: () => Promise<void>;
 }
 
 function startHarness(): Promise<Harness> {
   const traces: OumvStreamTrace[] = [];
+  const stateEvents: Array<{ seq: number; path: string; version: string; operation: string }> = [];
   const received: any[] = [];
   let seq = 0;
 
@@ -41,6 +43,19 @@ function startHarness(): Promise<Harness> {
     wsPaths: ['/__oumv/rpc'],
     authorize: (req) => req.headers['x-oumv-session-token'] === TOKEN,
     getTracesSince: (cursor) => traces.filter((trace) => trace.seq > cursor),
+    getEventsSince: (cursor) =>
+      [
+        ...traces
+          .filter((trace) => trace.seq > cursor)
+          .map((trace) => ({ seq: trace.seq, type: 'trace' as const, data: trace as unknown as Record<string, unknown> })),
+        ...stateEvents
+          .filter((event) => event.seq > cursor)
+          .map((event) => ({
+            seq: event.seq,
+            type: 'state' as const,
+            data: { path: event.path, version: event.version, operation: event.operation },
+          })),
+      ].sort((a, b) => a.seq - b.seq),
     handleRpcPayload: async (payload: any) => {
       received.push(payload);
       if (payload?.method === 'oumv/handshake') {
@@ -77,6 +92,10 @@ function startHarness(): Promise<Harness> {
     });
   };
 
+  const pushState = (path: string, operation: string) => {
+    stateEvents.push({ seq: ++seq, path, version: 'sha256:' + 'a'.repeat(64), operation });
+  };
+
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address() as net.AddressInfo;
@@ -84,6 +103,7 @@ function startHarness(): Promise<Harness> {
         url: `http://127.0.0.1:${address.port}`,
         traces,
         pushTrace,
+        pushState,
         received,
         close: () =>
           new Promise<void>((done) => {
@@ -162,6 +182,61 @@ describe('OUMV streaming transports', () => {
   it('rejects SSE without the session token', async () => {
     const response = await fetch(`${harness.url}/__oumv/events`);
     expect(response.status).toBe(401);
+  });
+
+  it('streams and replays state events over SSE', async () => {
+    harness.pushState('src/Probe.tsx', 'patch');
+
+    const response = await fetch(`${harness.url}/__oumv/events`, {
+      headers: { 'X-OUMV-Session-Token': TOKEN, 'Last-Event-ID': '0' },
+    });
+    const text = await readSseUntil(response, (chunk) => chunk.includes('event: state'));
+
+    expect(text).toContain('event: state');
+    expect(text).toContain('id: 1');
+    expect(text).toContain('"path":"src/Probe.tsx"');
+    expect(text).toContain('"operation":"patch"');
+  });
+
+  it('pushes notifications/oumv.state to a bound WebSocket peer', async () => {
+    const socket = new WebSocket(`${harness.url.replace('http', 'ws')}/__oumv/rpc`, {
+      headers: { 'X-OUMV-Session-Token': TOKEN },
+    } as any);
+    const messages: any[] = [];
+    const waitFor = (predicate: (msg: any) => boolean) =>
+      new Promise<any>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`timeout; got ${JSON.stringify(messages)}`)), 3000);
+        const check = () => {
+          const hit = messages.find(predicate);
+          if (hit) {
+            clearTimeout(timer);
+            resolve(hit);
+            return true;
+          }
+          return false;
+        };
+        socket.addEventListener('message', (event: MessageEvent) => {
+          messages.push(JSON.parse(String(event.data)));
+          check();
+        });
+        check();
+      });
+
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener('open', () => resolve());
+      socket.addEventListener('error', () => reject(new Error('websocket failed to open')));
+    });
+
+    socket.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'oumv/handshake', params: {} }));
+    await waitFor((msg) => msg.id === 1);
+
+    harness.pushState('src/Other.tsx', 'create');
+    const notification = await waitFor((msg) => msg.method === 'notifications/oumv.state');
+    expect(notification.params.sessionId).toBe('sess-ws');
+    expect(notification.params.path).toBe('src/Other.tsx');
+    expect(notification.params.operation).toBe('create');
+
+    socket.close();
   });
 
   it('answers JSON-RPC frames over WebSocket and pushes trace notifications', async () => {

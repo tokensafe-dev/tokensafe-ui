@@ -288,6 +288,25 @@ export default function App() {
     expect(broken.body.error.code).toBe(-32002);
   });
 
+  it('publishes a state event when a mutation is applied', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+
+    const created = await controller.handleRpcPayload({
+      id: 1,
+      method: 'oumv/applyEdit',
+      params: { path: 'src/Streamed.tsx', replacement: 'export const streamed = 1;\n', mode: 'create' },
+    });
+    expect(created.body.result.status).toBe('APPLIED');
+
+    const state = controller.getEventsSince(0).find((event: any) => event.type === 'state') as any;
+    expect(state).toBeTruthy();
+    expect(state.data).toMatchObject({ path: 'src/Streamed.tsx', operation: 'create' });
+    expect(state.data.version).toBe(created.body.result.newVersion);
+    expect(state.seq).toBeGreaterThan(0);
+    // The cursor moves past the delivered event: a reconnect at `seq` replays nothing.
+    expect(controller.getEventsSince(state.seq).some((event: any) => event.type === 'state')).toBe(false);
+  });
+
   it('normalizes browser traces for SSE ids and WS cursors without losing L4 fields', () => {
     const handlers: Record<string, Function> = {};
     const controller = createReactOumvController({

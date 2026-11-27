@@ -241,6 +241,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
           wsPaths: ['/__oumv/rpc', '/__tokensafe_ui/rpc', '/__agent_dom/rpc'],
           authorize: isAuthorized,
           getTracesSince: (seq: number) => controller.getTracesSince(seq) as any,
+          getEventsSince: (controller as any).getEventsSince,
           handleRpcPayload: controller.handleRpcPayload,
         });
         if (server.httpServer) {

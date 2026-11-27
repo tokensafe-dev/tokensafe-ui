@@ -12,7 +12,9 @@
  * captured result is validated against the method schema in that repo's suite.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { createReactOumvController } from '../dist/index.js';
 
 const arg = (name, fallback) => {
@@ -29,9 +31,9 @@ fs.mkdirSync(outDir, { recursive: true });
 const files = new Map();
 let seq = 0;
 
-async function capture(method, name, params) {
+async function capture(method, name, params, target = controller) {
   const request = { jsonrpc: '2.0', id: `${method}:${name}`, method, params };
-  const out = await controller.handleRpcPayload(request);
+  const out = await target.handleRpcPayload(request);
   if (!files.has(method)) {
     files.set(method, {
       method,
@@ -66,6 +68,30 @@ await capture('oumv/verify', 'browser-only verification, no tab', {
   target: 'component:TaskManager',
   action: 'conformance-probe',
 });
+
+// applyEdit runs on a throwaway copy: the example shows a real spliced hunk under
+// OCC without leaving a sandbox file mutated in the repository.
+const editRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'oumv-wire-edit-'));
+fs.cpSync(rootDir, editRoot, {
+  recursive: true,
+  filter: (src) => !src.split(path.sep).includes('node_modules'),
+});
+const editController = createReactOumvController({ rootDir: editRoot });
+const storePath = path.join(editRoot, 'src/store.ts');
+const storeVersion =
+  'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(storePath)).digest('hex');
+await capture(
+  'oumv/applyEdit',
+  'patch one field under OCC',
+  {
+    path: 'src/store.ts',
+    mode: 'patch',
+    expectedVersion: storeVersion,
+    hunks: [{ target: "filterPriority: 'All',", replacement: "filterPriority: 'High'," }],
+  },
+  editController
+);
+fs.rmSync(editRoot, { recursive: true, force: true });
 
 for (const [method, file] of files) {
   const name = {
