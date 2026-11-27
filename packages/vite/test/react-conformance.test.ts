@@ -113,6 +113,11 @@ describe('@tokensafe-ui/vite React Adapter — OUMV fixture certification', () =
       newFile: 'src/Created_New.tsx',
       editVersion: sha('export const value = 41;\n'),
       editContent: EDIT_CONTENT,
+      // fixtures v7: create writes EDIT_CONTENT, then patch must present its hash
+      // and produce PATCH_REPLACEMENT; without these the case falls back to the
+      // Python defaults and the OCC check fails.
+      editContentVersion: sha(EDIT_CONTENT),
+      patchReplacement: 'export const edited = "patched";\n',
       brokenContent: BROKEN_CONTENT,
       l2Target: 'Counter',
       l3Target: 'src/Counter.tsx',

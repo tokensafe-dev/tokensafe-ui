@@ -106,7 +106,7 @@ describe('@tokensafe-ui/vite Zero-Footprint Vite+React Mode', () => {
     expect(l2.body.result.evidence.provenance).toBe('contract');
   });
 
-  it('mounts no OUMV endpoints for a Vue app (no adapter yet)', () => {
+  it('mounts the OUMV endpoints and the Vue bridge for a Vue app', () => {
     const plugin = tokensafeUi();
     (plugin as any).configResolved({ command: 'serve', root: tmpRepo });
     let middlewareCount = 0;
@@ -122,7 +122,10 @@ describe('@tokensafe-ui/vite Zero-Footprint Vite+React Mode', () => {
       'utf-8'
     );
     (plugin.configureServer as Function)(fakeServer);
-    expect(middlewareCount).toBe(0);
+    // /__oumv/rpc (and its two legacy aliases) plus the SSE/WS paths.
+    expect(middlewareCount).toBeGreaterThan(0);
+    const html = (plugin.transformIndexHtml as Function)('<html><body><div id="app"></div></body></html>');
+    expect(html.tags[0].attrs.src).toBe('/@oumv/vue-bridge.js');
   });
 
   it('deduplicates multiple tokensafeReact plugin instances cleanly', () => {
