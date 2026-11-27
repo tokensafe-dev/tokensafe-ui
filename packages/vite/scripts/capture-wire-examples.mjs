@@ -38,7 +38,7 @@ async function capture(method, name, params, target = controller) {
     files.set(method, {
       method,
       profile: 'frontend',
-      specVersion: '1.5.0',
+      specVersion: '1.6.0',
       adapter: 'frontend/react',
       note: 'captured from the React/Vite controller without a browser tab; verify answers -32008 and L4 has no traces, which is the honest offline shape',
       cases: [],
@@ -68,6 +68,26 @@ await capture('oumv/verify', 'browser-only verification, no tab', {
   target: 'component:TaskManager',
   action: 'conformance-probe',
 });
+
+// Wire 1.6.0 (spec §3/§4.4/§14): the frontend controller implements
+// previewEdit and cancel, and honestly answers -32601 for the optional
+// extensions it does not serve (index/query/build) — exactly the §14 contract.
+await capture('oumv/previewEdit', 'dry-run patch under OCC', {
+  path: 'src/store.ts',
+  mode: 'patch',
+  expectedVersion: 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(path.join(rootDir, 'src/store.ts'))).digest('hex'),
+  hunks: [{ target: "filterPriority: 'All',", replacement: "filterPriority: 'High'," }],
+});
+await capture('oumv/previewEdit', 'create refuses an existing file', {
+  path: 'src/store.ts',
+  mode: 'create',
+  replacement: "export const store = {};\n",
+});
+await capture('oumv/cancel', 'unknown requestId is a result', { requestId: 'op-unknown' });
+await capture('oumv/cancel', 'target last is already finished', { target: 'last' });
+await capture('oumv/index', 'frontend runtime answers -32601', { query: 'TaskManager', limit: 10 });
+await capture('oumv/query', 'frontend runtime answers -32601', { sql: 'SELECT 1' });
+await capture('oumv/build', 'frontend runtime answers -32601', {});
 
 // applyEdit runs on a throwaway copy: the example shows a real spliced hunk under
 // OCC without leaving a sandbox file mutated in the repository.
@@ -101,6 +121,11 @@ for (const [method, file] of files) {
     'oumv/getSource': 'getSource.json',
     'oumv/applyEdit': 'applyEdit.json',
     'oumv/verify': 'verify.json',
+    'oumv/previewEdit': 'previewEdit.json',
+    'oumv/index': 'index.json',
+    'oumv/query': 'query.json',
+    'oumv/build': 'build.json',
+    'oumv/cancel': 'cancel.json',
   }[method];
   fs.writeFileSync(path.join(outDir, name), JSON.stringify(file, null, 2) + '\n', 'utf-8');
   console.log(`${method}: ${file.cases.length} case(s) → ${name}`);
