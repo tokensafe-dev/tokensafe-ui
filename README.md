@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/tokensafe-ui.svg)](https://www.npmjs.com/package/tokensafe-ui)
 [![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.4--canonical-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
-> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 with a zero-footprint Vite bridge (certified Level 3 in a browser), plus a programmatic Vue 3 adapter that is not yet wired into Vite or certified. A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
+> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 and Vue 3 through the same zero-footprint Vite bridge, both certified Level 3 in a real browser (33/33 conformance cases each). A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
 
 Part of the **[TokenSafe](https://github.com/tokensafe-dev)** autonomous agent developer ecosystem.
 
@@ -243,11 +243,13 @@ Connects React components, hooks, and stores to OUMV:
 - **React Context**: `connectContext(contextValue, { name: 'authContext' })`
 - **Static Discovery**: `scanSourceForComponents(source, filePath)` extracts components and routes directly from TSX/JSX AST via Babel without running a headless browser.
 
-### 2. Vue Adapter (programmatic, `@tokensafe-ui/oumv/vue`)
-Registers Vue 3 components and Pinia stores manually for the in-process adapter.
-There is **no Vite integration and no conformance report yet**: a Vue app served by
-the plugin exposes no OUMV endpoints, so agents should use static analysis for Vue
-until that lands.
+### 2. Vue Adapter (`@tokensafe-ui/oumv/vue` + the Vite bridge)
+Registers Vue 3 components and Pinia stores for the in-process adapter, and the same
+`tokensafeUi()` plugin line serves the OUMV endpoints for a Vue app
+(`framework: 'vue'` or auto-detected). The Vue bridge reads the app instance Vue's dev
+build leaves on the mount element, so components need no instrumentation; registered
+stores give `oumv/verify` real actions and state diffs. Certified Level 3 in a real
+browser: `certification/vue-vite-browser.json` — 33/33 cases, fixtures v7.
 
 ### 3. Vite Dev-Server Bridge (`tokensafe-ui/vite`)
 Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.tokensafe/runtime.json`, mode `0600`) in dev mode.
@@ -258,11 +260,14 @@ Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.to
 
 ### 1. Conformance: Level 3 in a real browser
 
-`certification/react-vite-browser.json` — **25/25 cases (fixtures v6), Level 3**, produced by
+`certification/react-vite-browser.json` — **33/33 cases (fixtures v7), Level 3**, produced by
 `packages/vite/scripts/certify-react-browser.mjs`: it starts the committed
 `certification/app` through Vite, opens it in headless Chrome, waits for the bridge and
 runs `oumv-certify --url` against the dev server. `oumv/verify` dispatches real synthetic
 events, and L4 traces are the ones the bridge actually recorded.
+
+The Vue run is the same shape: `certification/vue-vite-browser.json` — **33/33, Level 3**,
+from `packages/vite/scripts/certify-vue-browser.mjs` over `certification/app-vue`.
 
 The offline stdio run (`certification/react-vite.json`) attains Level 1 for a reason worth
 stating: `oumv/verify` answers `-32008` without a browser tab and L4/causality have no
@@ -344,7 +349,7 @@ In a real-world validation run on `OrderCheckout.tsx` (featuring Zod validation,
 - [ ] **P3: Ecosystem & Benchmarking**
   - [x] AUI-Bench autonomous agent benchmark suite.
   - [x] React adapter for the OUMV protocol (Level 3, certified in a real browser).
-- [ ] Vue adapter: Vite integration and certification.
+  - [x] Vue adapter: Vite bridge, wire 1.3.0 (patch mode, source windows) and Level 3 certification.
   - [x] Isomorphic SSR hydration runtime (`renderToString` + `hydrate`).
   - [x] Two-way form binding helpers (`bind`).
   - [x] Scaffolding CLI (`create-tokensafe-ui`).

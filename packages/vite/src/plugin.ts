@@ -15,6 +15,12 @@ import {
   getReactBridgeClientCode,
 } from './react-bridge.js';
 import { createReactOumvController } from './react-rpc.js';
+import {
+  VUE_BRIDGE_PUBLIC_PATH,
+  VUE_BRIDGE_VIRTUAL_ID,
+  getVueBridgeClientCode,
+} from './vue-bridge.js';
+import { createVueOumvController } from './vue-rpc.js';
 import { attachStreamTransports } from './streams.js';
 import {
   clearWorkspaceRuntimeDescriptor,
@@ -82,24 +88,30 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
     },
 
     resolveId(id: string) {
-      if (isServeCommand && resolvedMode === 'react' && id === REACT_BRIDGE_PUBLIC_PATH) {
-        return REACT_BRIDGE_VIRTUAL_ID;
-      }
+      if (!isServeCommand) return null;
+      if (resolvedMode === 'react' && id === REACT_BRIDGE_PUBLIC_PATH) return REACT_BRIDGE_VIRTUAL_ID;
+      if (resolvedMode === 'vue' && id === VUE_BRIDGE_PUBLIC_PATH) return VUE_BRIDGE_VIRTUAL_ID;
       return null;
     },
 
     load(id: string) {
-      if (isServeCommand && resolvedMode === 'react' && id === REACT_BRIDGE_VIRTUAL_ID) {
-        return getReactBridgeClientCode();
-      }
+      if (!isServeCommand) return null;
+      if (resolvedMode === 'react' && id === REACT_BRIDGE_VIRTUAL_ID) return getReactBridgeClientCode();
+      if (resolvedMode === 'vue' && id === VUE_BRIDGE_VIRTUAL_ID) return getVueBridgeClientCode();
       return null;
     },
 
     transformIndexHtml(html: string) {
-      if (!isServeCommand || !enableRpc || resolvedMode !== 'react') {
+      if (!isServeCommand || !enableRpc) {
         return html;
       }
-      if (html.includes(REACT_BRIDGE_PUBLIC_PATH)) {
+      const bridgePath =
+        resolvedMode === 'react'
+          ? REACT_BRIDGE_PUBLIC_PATH
+          : resolvedMode === 'vue'
+            ? VUE_BRIDGE_PUBLIC_PATH
+            : null;
+      if (!bridgePath || html.includes(bridgePath)) {
         return html;
       }
       return {
@@ -107,7 +119,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         tags: [
           {
             tag: 'script',
-            attrs: { type: 'module', src: REACT_BRIDGE_PUBLIC_PATH },
+            attrs: { type: 'module', src: bridgePath },
             injectTo: 'body' as const,
           },
         ],
@@ -142,12 +154,13 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
       const rootDir = server.config?.root || process.cwd();
       resolvedMode = resolveFrameworkMode(rootDir, options.framework);
 
-      if (resolvedMode === 'react') {
-        const reactRpc = createReactOumvController({
-          rootDir,
-          sessionToken,
-          server,
-        });
+      if (resolvedMode === 'react' || resolvedMode === 'vue') {
+        const controller =
+          resolvedMode === 'react'
+            ? createReactOumvController({ rootDir, sessionToken, server })
+            : createVueOumvController({ rootDir, sessionToken, server });
+        const runtimeVersion =
+          resolvedMode === 'react' ? (controller as any).reactVersion : (controller as any).vueVersion;
 
         const isAuthorized = (req: any): boolean => {
           const providedToken = String(
@@ -201,7 +214,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
             res.setHeader('Content-Type', 'application/json');
             try {
               const payload = JSON.parse(body || '{}');
-              const out = await reactRpc.handleRpcPayload(payload);
+              const out = await controller.handleRpcPayload(payload);
               res.statusCode = out.statusCode;
               res.end(JSON.stringify(out.body));
             } catch (err: any) {
@@ -227,8 +240,8 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
           ssePaths: ['/__oumv/events', '/__tokensafe_ui/events', '/__agent_dom/events'],
           wsPaths: ['/__oumv/rpc', '/__tokensafe_ui/rpc', '/__agent_dom/rpc'],
           authorize: isAuthorized,
-          getTracesSince: reactRpc.getTracesSince,
-          handleRpcPayload: reactRpc.handleRpcPayload,
+          getTracesSince: (seq: number) => controller.getTracesSince(seq) as any,
+          handleRpcPayload: controller.handleRpcPayload,
         });
         if (server.httpServer) {
           server.httpServer.once('close', detachStreams);
@@ -242,8 +255,8 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
               : server.config?.server?.port || 5173;
           writeRuntimeDescriptor(rootDir, {
             type: 'frontend',
-            name: 'react',
-            version: reactRpc.reactVersion,
+            name: resolvedMode,
+            version: runtimeVersion,
             url: `http://localhost:${boundPort}/__oumv/rpc`,
             sseUrl: `http://localhost:${boundPort}/__oumv/events`,
             wsUrl: `ws://localhost:${boundPort}/__oumv/rpc`,
@@ -267,10 +280,8 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
         return;
       }
 
-      // No OUMV adapter for Vue yet. Mounting the legacy native runtime here would
-      // answer with a SolidJS identity (runtimeInfo.framework) and pre-envelope
-      // payloads, i.e. advertise a capability we cannot certify — so serve nothing.
-      if (resolvedMode === 'vue') return;
+      // The native tokensafe-ui runtime owns this branch; React and Vue are
+      // handled above, so a framework app never evaluates the SolidJS core.
 
       // Handle custom client snapshot events from browser HMR
       const handleSnapshot = (data: any) => {
