@@ -17,6 +17,7 @@ const ERR_UNSUPPORTED = -32006;
 const ERR_PERMISSION_DENIED = -32007;
 const ERR_RUNTIME_UNAVAILABLE = -32008;
 const ERR_RESOURCE_NOT_FOUND = -32009;
+const ERR_STALE_RESOURCE_VERSION = -32010;
 const ERR_VALIDATION_FAILED = -32011;
 const ERR_INVALID_PARAMS = -32602;
 const ERR_METHOD_NOT_FOUND = -32601;
@@ -623,6 +624,54 @@ export function createVueOumvController(options: VueRpcOptions) {
   });
 
   const sessions = new Map<string, number>();
+
+/**
+ * §3 idempotent retries (wire 1.6.0): per-session key -> first final result.
+ */
+const idempotencyCache = new Map<string, Record<string, unknown>>();
+
+/** §4.1 result versioning: directories whose churn is not source. */
+const DIGEST_SKIP_DIRS = new Set([
+  'node_modules', 'dist', 'build', '.git', '.tokensafe', '.oumv', 'coverage', '.next',
+  '.cache', '.turbo', '.output',
+]);
+
+/**
+ * §4.1 result versioning (wire 1.6.0): sha256 over the workspace inventory
+ * (relative path, size, mtime). Recomputed per call — a cached token would
+ * defeat the freshness check it exists for.
+ */
+function workspaceDigest(rootDir: string): string {
+  const entries: string[] = [];
+  const walk = (dir: string): void => {
+    let children: fs.Dirent[];
+    try {
+      children = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const child of children) {
+      const full = path.join(dir, child.name);
+      if (child.isDirectory()) {
+        if (!DIGEST_SKIP_DIRS.has(child.name)) walk(full);
+        continue;
+      }
+      // Process-local artifacts are not source: a db journal or a log file
+      // rewrites itself on every request and would make the token flap.
+      if (/\.(db|db-wal|db-shm|sqlite3?|sqlite-wal|sqlite-shm|log)$/i.test(child.name)) continue;
+      try {
+        const stat = fs.statSync(full);
+        const rel = path.relative(rootDir, full).split(path.sep).join('/');
+        entries.push(`${rel}:${stat.size}:${stat.mtimeMs}`);
+      } catch {
+        // an unreadable entry contributes nothing
+      }
+    }
+  };
+  walk(rootDir);
+  entries.sort();
+  return 'sha256:' + crypto.createHash('sha256').update(entries.join('\n')).digest('hex');
+}
   const SESSION_TTL_SECONDS = 3600;
 
   const findComponent = (index: VueStaticIndex, targetRaw: string) => {
@@ -768,6 +817,8 @@ export function createVueOumvController(options: VueRpcOptions) {
           understand: { causality: true, signalsGraph: false, componentGraph: true, impactAnalysis: true },
           mutate: { occ: true, syntaxGuard: true, preview: true, ephemeralDispatch: true },
           verify: { multiMetric: true, surfaceDiff: true },
+          // Wire 1.6.0: §14.1 symbol search over the static Vue index.
+          index: { symbols: true },
           // Wire 1.5.0: the handshake honours sessionTtlSeconds and echoes ttlSeconds.
           sessions: { ttlSeconds: true, cancel: true, idempotency: true },
         };
@@ -789,6 +840,28 @@ export function createVueOumvController(options: VueRpcOptions) {
       }
 
       case 'oumv/observe': {
+
+        // §4.1 result versioning (wire 1.6.0): the ifVersion handshake runs before
+        // any scan, so a fresh caller pays nothing and a stale one is told to refetch.
+        const observeWorkspaceVersion = workspaceDigest(rootDir);
+        const observeIfVersion = typeof params?.ifVersion === 'string' ? params.ifVersion.trim() : '';
+        if (observeIfVersion) {
+          if (observeIfVersion !== observeWorkspaceVersion) {
+            return rpcError(
+              id,
+              ERR_STALE_RESOURCE_VERSION,
+              `STALE_RESOURCE_VERSION: the workspace changed since the caller's snapshot (expected ${observeIfVersion}, current is ${observeWorkspaceVersion}) — refetch without ifVersion`,
+              { reason: 'stale_version', current: observeWorkspaceVersion, expected: observeIfVersion }
+            );
+          }
+          return rpcSuccess(id, {
+            level: String(params?.level || 'L0').toUpperCase(),
+            format: String(params?.format || 'json').toLowerCase(),
+            unchanged: true,
+            workspaceVersion: observeWorkspaceVersion,
+          });
+        }
+        const observeRespond = (payload: any) => rpcSuccess(id, { ...payload, workspaceVersion: observeWorkspaceVersion });
         const level = String(params?.level || 'L0').toUpperCase();
         if (!['L0', 'L1', 'L2', 'L3', 'L4'].includes(level)) {
           return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: unknown observe level ${level}`);
@@ -831,7 +904,7 @@ export function createVueOumvController(options: VueRpcOptions) {
                 staticFilesScanned: index.totalScannedFiles,
                 note: 'Vite DevServer is online; open the app in a browser tab for live Vue telemetry.',
               };
-          return rpcSuccess(id, {
+          return observeRespond({
             level: 'L0',
             format,
             data,
@@ -846,7 +919,7 @@ export function createVueOumvController(options: VueRpcOptions) {
 
         if (level === 'L1') {
           const data = l1Data(params?.limit, params?.cursor, target);
-          return rpcSuccess(id, { level: 'L1', format, data, tokenEstimate: Math.ceil(JSON.stringify(data).length / 4) });
+          return observeRespond({ level: 'L1', format, data, tokenEstimate: Math.ceil(JSON.stringify(data).length / 4) });
         }
 
         if (level === 'L2') {
@@ -877,7 +950,7 @@ export function createVueOumvController(options: VueRpcOptions) {
               confidence: 'confirmed',
             },
           };
-          return rpcSuccess(id, {
+          return observeRespond({
             level: 'L2',
             format,
             data,
@@ -911,7 +984,7 @@ export function createVueOumvController(options: VueRpcOptions) {
             endLine: lineCount(source),
             framework: 'vue',
           };
-          return rpcSuccess(id, {
+          return observeRespond({
             level: 'L3',
             format,
             data,
@@ -929,10 +1002,30 @@ export function createVueOumvController(options: VueRpcOptions) {
           diagnostics: diagnosticEvents.map((event) => event.diagnostic).slice(-Math.max(1, params?.limit ?? 25)),
           ...(page.hasMore ? { hasMore: true, nextCursor: page.nextCursor } : {}),
         };
-        return rpcSuccess(id, { level: 'L4', format, data, tokenEstimate: Math.ceil(JSON.stringify(data).length / 4) });
+        return observeRespond({ level: 'L4', format, data, tokenEstimate: Math.ceil(JSON.stringify(data).length / 4) });
       }
 
       case 'oumv/understand': {
+
+      // §4.1: understand honours the same freshness handshake as observe.
+      const understandWorkspaceVersion = workspaceDigest(rootDir);
+      const understandIfVersion = typeof params?.ifVersion === 'string' ? params.ifVersion.trim() : '';
+      if (understandIfVersion) {
+        if (understandIfVersion !== understandWorkspaceVersion) {
+          return rpcError(
+            id,
+            ERR_STALE_RESOURCE_VERSION,
+            `STALE_RESOURCE_VERSION: the workspace changed since the caller's snapshot (expected ${understandIfVersion}, current is ${understandWorkspaceVersion}) — refetch without ifVersion`,
+            { reason: 'stale_version', current: understandWorkspaceVersion, expected: understandIfVersion }
+          );
+        }
+        return rpcSuccess(id, {
+          query: String(params?.query || 'causality'),
+          unchanged: true,
+          workspaceVersion: understandWorkspaceVersion,
+        });
+      }
+      const understandRespond = (payload: any) => rpcSuccess(id, { ...payload, workspaceVersion: understandWorkspaceVersion });
         const query = String(params?.query || 'impact');
         const target = String(params?.target || '').trim();
         const index = staticIndex();
@@ -944,12 +1037,12 @@ export function createVueOumvController(options: VueRpcOptions) {
           if (!comp && !fileOfTarget(index, target)) {
             return rpcError(id, ERR_RESOURCE_NOT_FOUND, `RESOURCE_NOT_FOUND: no static component or file matches '${target}'`, { target });
           }
-          return rpcSuccess(id, { query: 'impact', target, impact: impactFor(index, target) });
+          return understandRespond({ query: 'impact', target, impact: impactFor(index, target) });
         }
         if (query === 'causality' || query === 'why_state') {
           const relevant = traces.filter((t) => String(t.target ?? t.path ?? '').includes(target));
           const last = relevant[relevant.length - 1];
-          return rpcSuccess(id, {
+          return understandRespond({
             query: 'causality',
             target,
             causality: {
@@ -965,7 +1058,7 @@ export function createVueOumvController(options: VueRpcOptions) {
         }
         if (query === 'dependencies') {
           const graph = index.components.map((c) => ({ component: c.name, filePath: c.filePath, imports: index.imports.get(c.filePath) || [] }));
-          return rpcSuccess(id, { query: 'dependencies', target, dependencyGraph: graph });
+          return understandRespond({ query: 'dependencies', target, dependencyGraph: graph });
         }
         return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: unknown understand query ${query}`);
       }
@@ -1143,6 +1236,87 @@ export function createVueOumvController(options: VueRpcOptions) {
 
 
 
+      case 'oumv/index': {
+        // §14.1 symbol search over the Vue static index (components + routes).
+        const query = String(params?.query ?? '').trim();
+        if (!query) return rpcError(id, ERR_INVALID_PARAMS, 'INVALID_PARAMS: query is required');
+        const lowerQuery = query.toLowerCase();
+        const kinds = Array.isArray(params?.kinds)
+          ? params.kinds.map((kind: unknown) => String(kind).toLowerCase())
+          : [];
+        const wants = (kind: string) => kinds.length === 0 || kinds.includes(kind);
+        const scope = String(params?.scope ?? '').trim().replace(/\\/g, '/');
+        const inScope = (file: string) => !scope || file.replace(/\\/g, '/').startsWith(scope);
+        const limit = Math.max(1, Math.min(Number(params?.limit) || 50, 200));
+        const index = staticIndex();
+
+        type Candidate = {
+          resourceId: string;
+          name: string;
+          kind: string;
+          file: string;
+          lines: [number, number];
+          signature?: string;
+          qualified?: string;
+        };
+        const candidates: Candidate[] = [];
+        if (wants('component')) {
+          for (const component of index.components) {
+            if (!inScope(component.filePath)) continue;
+            candidates.push({
+              resourceId: component.id,
+              name: component.name,
+              kind: 'component',
+              file: component.filePath,
+              lines: [component.lineStart, component.lineEnd],
+              signature: `${component.name}(${component.propsKeys.join(', ')})`,
+            });
+          }
+        }
+        if (wants('route')) {
+          for (const route of index.routes) {
+            if (!inScope(route.filePath)) continue;
+            candidates.push({
+              resourceId: `frontend.route:${route.path}`,
+              name: route.path,
+              kind: 'route',
+              file: route.filePath,
+              lines: [1, 1],
+              ...(route.componentName ? { qualified: route.componentName } : {}),
+            });
+          }
+        }
+
+        const rank = (candidate: Candidate): number => {
+          const name = candidate.name.toLowerCase();
+          if (name === lowerQuery) return 0;
+          if (name.startsWith(lowerQuery)) return 1;
+          const qualifiedTail = (candidate.qualified ?? '').toLowerCase();
+          if (qualifiedTail === lowerQuery || qualifiedTail.endsWith(`.${lowerQuery}`)) return 2;
+          if (name.includes(lowerQuery) || qualifiedTail.includes(lowerQuery)) return 3;
+          return -1;
+        };
+
+        const scored = candidates
+          .map((candidate) => ({ candidate, tier: rank(candidate) }))
+          .filter((entry) => entry.tier >= 0)
+          .sort((a, b) => a.tier - b.tier || b.candidate.lines[1] - a.candidate.lines[1]);
+        const matches = scored.slice(0, limit).map(({ candidate, tier }) => ({
+          resourceId: candidate.resourceId,
+          name: candidate.name,
+          kind: candidate.kind,
+          file: candidate.file,
+          lines: candidate.lines,
+          ...(candidate.signature ? { signature: candidate.signature } : {}),
+          match: (['exact', 'prefix', 'qualified-suffix', 'substring'] as const)[tier],
+        }));
+        return rpcSuccess(id, {
+          matches,
+          truncated: scored.length > matches.length,
+          totalMatches: scored.length,
+        });
+      }
+
       case 'oumv/cancel': {
 
 
@@ -1161,6 +1335,17 @@ export function createVueOumvController(options: VueRpcOptions) {
 
       case 'oumv/applyEdit':
       case 'oumv/mutate': {
+        // §3 idempotent retries (wire 1.6.0): a keyed mutation that already ran
+        // replays its first final result instead of re-applying (and re-conflicting).
+        const editIdempotencyKey = typeof params?.idempotencyKey === 'string' ? params.idempotencyKey.trim() : '';
+        const editIdempotencyScope = `${String(params?.sessionId ?? 'anon')}:${editIdempotencyKey}`;
+        if (editIdempotencyKey && idempotencyCache.has(editIdempotencyScope)) {
+          return rpcSuccess(id, idempotencyCache.get(editIdempotencyScope) as Record<string, unknown>);
+        }
+        const editRespond = (payload: Record<string, unknown>) => {
+          if (editIdempotencyKey) idempotencyCache.set(editIdempotencyScope, payload);
+          return rpcSuccess(id, payload);
+        };
         if (options.sessionToken && params?.disableMutations) {
           return rpcError(id, ERR_PERMISSION_DENIED, 'PERMISSION_DENIED: mutations are disabled');
         }
@@ -1199,7 +1384,7 @@ export function createVueOumvController(options: VueRpcOptions) {
           const tmp = resolved + '.oumv.tmp';
           fs.writeFileSync(tmp, content, 'utf-8');
           fs.renameSync(tmp, resolved);
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: relPath,
             newVersion: sha256(content),
@@ -1233,7 +1418,7 @@ export function createVueOumvController(options: VueRpcOptions) {
             });
           }
           fs.rmSync(resolved, { force: true });
-          return rpcSuccess(id, { status: 'APPLIED', path: relPath, deleted: true, newVersion: null });
+          return editRespond({ status: 'APPLIED', path: relPath, deleted: true, newVersion: null });
         }
 
         if (mode === 'rename') {
@@ -1268,7 +1453,7 @@ export function createVueOumvController(options: VueRpcOptions) {
           }
           fs.mkdirSync(path.dirname(targetPath), { recursive: true });
           fs.renameSync(resolved, targetPath);
-          return rpcSuccess(id, { status: 'APPLIED', path: relPath, newPath: String(renameTo), newVersion: currentVersion });
+          return editRespond({ status: 'APPLIED', path: relPath, newPath: String(renameTo), newVersion: currentVersion });
         }
 
         let nextSource: string;
@@ -1357,7 +1542,7 @@ export function createVueOumvController(options: VueRpcOptions) {
             expectedVersion: currentVersion,
             validateTypeScript: false,
           });
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: relPath,
             ...(params?.symbol ? { symbol: String(params.symbol) } : {}),

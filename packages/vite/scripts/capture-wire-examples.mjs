@@ -85,7 +85,7 @@ await capture('oumv/previewEdit', 'create refuses an existing file', {
 });
 await capture('oumv/cancel', 'unknown requestId is a result', { requestId: 'op-unknown' });
 await capture('oumv/cancel', 'target last is already finished', { target: 'last' });
-await capture('oumv/index', 'frontend runtime answers -32601', { query: 'TaskManager', limit: 10 });
+await capture('oumv/index', 'ranked component search', { query: 'Task', limit: 5 });
 await capture('oumv/query', 'frontend runtime answers -32601', { sql: 'SELECT 1' });
 await capture('oumv/build', 'frontend runtime answers -32601', {});
 

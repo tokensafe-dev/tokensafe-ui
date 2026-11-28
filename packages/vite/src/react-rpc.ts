@@ -108,6 +108,7 @@ const ERR_UNSUPPORTED = -32006;
 const ERR_PERMISSION_DENIED = -32007;
 const ERR_RUNTIME_UNAVAILABLE = -32008;
 const ERR_RESOURCE_NOT_FOUND = -32009;
+const ERR_STALE_RESOURCE_VERSION = -32010;
 const ERR_VALIDATION_FAILED = -32011;
 const ERR_INVALID_PARAMS = -32602;
 const ERR_METHOD_NOT_FOUND = -32601;
@@ -572,6 +573,55 @@ export function createReactOumvController(options: ReactRpcOptions) {
   });
 
   const sessions = new Map<string, number>();
+
+/**
+ * §3 idempotent retries (wire 1.6.0): per-session key -> first final result.
+ * A retried mutation replays the original answer instead of re-applying it.
+ */
+const idempotencyCache = new Map<string, Record<string, unknown>>();
+
+/** §4.1 result versioning: skip-list for the workspace inventory walk. */
+const DIGEST_SKIP_DIRS = new Set([
+  'node_modules', 'dist', 'build', '.git', '.tokensafe', '.oumv', 'coverage', '.next',
+  '.cache', '.turbo', '.output',
+]);
+
+/**
+ * §4.1 result versioning (wire 1.6.0): a sha256 over the workspace inventory
+ * (relative path, size, mtime). Recomputed per call — a cached token would defeat
+ * the freshness check it exists for.
+ */
+function workspaceDigest(rootDir: string): string {
+  const entries: string[] = [];
+  const walk = (dir: string): void => {
+    let children: fs.Dirent[];
+    try {
+      children = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const child of children) {
+      const full = path.join(dir, child.name);
+      if (child.isDirectory()) {
+        if (!DIGEST_SKIP_DIRS.has(child.name)) walk(full);
+        continue;
+      }
+      // Process-local artifacts are not source: a db journal or a log file
+      // rewrites itself on every request and would make the token flap.
+      if (/\.(db|db-wal|db-shm|sqlite3?|sqlite-wal|sqlite-shm|log)$/i.test(child.name)) continue;
+      try {
+        const stat = fs.statSync(full);
+        const rel = path.relative(rootDir, full).split(path.sep).join('/');
+        entries.push(`${rel}:${stat.size}:${stat.mtimeMs}`);
+      } catch {
+        // an unreadable entry contributes nothing
+      }
+    }
+  };
+  walk(rootDir);
+  entries.sort();
+  return 'sha256:' + crypto.createHash('sha256').update(entries.join('\n')).digest('hex');
+}
   const SESSION_TTL_SECONDS = 3600;
 
   /** Canonical envelope for every method: extras belong inside `data`, never beside it. */
@@ -579,7 +629,10 @@ export function createReactOumvController(options: ReactRpcOptions) {
     const result = out?.body?.result;
     if (!result || typeof result !== 'object' || Array.isArray(result)) return out;
     if (method === 'oumv/observe') {
-      const { level, format, data, tokenEstimate, evidence, ...rest } = result as Record<string, any>;
+      // §4.1 `workspaceVersion`/`unchanged` are envelope fields: they stay beside
+      // `data`, never folded into it (the freshness token must be addressable).
+      const { level, format, data, tokenEstimate, evidence, workspaceVersion, unchanged, ...rest } =
+        result as Record<string, any>;
       return {
         ...out,
         body: {
@@ -590,21 +643,30 @@ export function createReactOumvController(options: ReactRpcOptions) {
             // Per-level `data` is the profile's extension point (schema: no
             // additionalProperties restriction there), so browser/static metadata
             // lives there instead of beside the envelope.
-            data: { ...(data && typeof data === 'object' ? data : {}), ...rest },
+            // An empty payload is omitted: the §4.1 short envelope carries no data.
+            ...(Object.keys({ ...(data && typeof data === 'object' ? data : {}), ...rest }).length
+              ? { data: { ...(data && typeof data === 'object' ? data : {}), ...rest } }
+              : {}),
             // `payload` is the deprecated §4.6 alias for `data`; emitting both
             // doubled every observation without adding information.
             ...(tokenEstimate !== undefined ? { tokenEstimate } : {}),
             ...(evidence ? { evidence } : {}),
+            ...(workspaceVersion !== undefined ? { workspaceVersion } : {}),
+            ...(unchanged !== undefined ? { unchanged } : {}),
           },
         },
       };
     }
     if (method === 'oumv/understand') {
-      const { query, target, impact, causality, ...rest } = result as Record<string, any>;
+      const { query, target, impact, causality, workspaceVersion, unchanged, ...rest } =
+        result as Record<string, any>;
       const narrowed: Record<string, any> = { query, target };
       if (impact) narrowed.impact = { ...impact, ...rest };
       else if (causality) narrowed.causality = { ...causality, ...rest };
-      else narrowed.impact = { ...rest };
+      else if (rest && Object.keys(rest).length) narrowed.impact = { ...rest };
+      // §4.1: the freshness token is an envelope field, mirroring observe.
+      if (workspaceVersion !== undefined) narrowed.workspaceVersion = workspaceVersion;
+      if (unchanged !== undefined) narrowed.unchanged = unchanged;
       return { ...out, body: { ...out.body, result: narrowed } };
     }
     if (method === 'oumv/getSource' && 'filePath' in (result as Record<string, any>)) {
@@ -665,6 +727,8 @@ export function createReactOumvController(options: ReactRpcOptions) {
           // Wire 1.6.0: preview advertises the §4.4 dry-run (same guard order, no write).
           mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true, preview: true },
           verify: { multiMetric: true, surfaceDiff: true },
+          // Wire 1.6.0: §14.1 symbol search over the static discovery index.
+          index: { symbols: true },
           // Wire 1.5.0/1.6.0: TTL negotiation, best-effort cancel, idempotent retries.
           sessions: { ttlSeconds: true, cancel: true, idempotency: true },
         };
@@ -696,6 +760,28 @@ export function createReactOumvController(options: ReactRpcOptions) {
       }
 
       case 'oumv/observe': {
+
+        // §4.1 result versioning (wire 1.6.0): the ifVersion handshake runs before
+        // any scan, so a fresh caller pays nothing and a stale one is told to refetch.
+        const observeWorkspaceVersion = workspaceDigest(rootDir);
+        const observeIfVersion = typeof params?.ifVersion === 'string' ? params.ifVersion.trim() : '';
+        if (observeIfVersion) {
+          if (observeIfVersion !== observeWorkspaceVersion) {
+            return rpcError(
+              id,
+              ERR_STALE_RESOURCE_VERSION,
+              `STALE_RESOURCE_VERSION: the workspace changed since the caller's snapshot (expected ${observeIfVersion}, current is ${observeWorkspaceVersion}) — refetch without ifVersion`,
+              { reason: 'stale_version', current: observeWorkspaceVersion, expected: observeIfVersion }
+            );
+          }
+          return rpcSuccess(id, {
+            level: String(params?.level || 'L0').toUpperCase(),
+            format: String(params?.format || 'json').toLowerCase(),
+            unchanged: true,
+            workspaceVersion: observeWorkspaceVersion,
+          });
+        }
+        const observeRespond = (payload: any) => rpcSuccess(id, { ...payload, workspaceVersion: observeWorkspaceVersion });
         const level = String(params?.level || 'L0').toUpperCase();
         if (!['L0', 'L1', 'L2', 'L3', 'L4'].includes(level)) {
           return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: unknown observe level ${level}`);
@@ -760,7 +846,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               ? `level: L0\nframework: react\nbrowserConnected: ${pulse.browserConnected}\nroute: ${pulse.route}\nmounted: [${(pulse.mounted || []).join(', ')}]\nelements: ${pulse.elements}\nerrors: ${pulse.errors}\nstaticComponents: ${pulse.staticComponentsCount}\n`
               : JSON.stringify(pulse);
 
-          return rpcSuccess(id, {
+          return observeRespond({
             ...pulse,
             format,
             payload: payloadStr,
@@ -898,7 +984,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
             if (format === 'yaml') {
               const yamlPayload = yamlLines.join('\n');
-              return rpcSuccess(id, {
+              return observeRespond({
                 level: 'L1',
                 format: 'yaml',
                 payload: yamlPayload,
@@ -934,7 +1020,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             }
 
             const jsonPayload = JSON.stringify(collection);
-            return rpcSuccess(id, {
+            return observeRespond({
               level: 'L1',
               format,
               payload: jsonPayload,
@@ -1030,7 +1116,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
           if (format === 'yaml') {
             const yamlPayload = offlineYamlLines.join('\n');
-            return rpcSuccess(id, {
+            return observeRespond({
               level: 'L1',
               format: 'yaml',
               payload: yamlPayload,
@@ -1061,7 +1147,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
 
           const jsonPayload = JSON.stringify(collection);
-          return rpcSuccess(id, {
+          return observeRespond({
             level: 'L1',
             format,
             payload: jsonPayload,
@@ -1122,7 +1208,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               ? `level: L2\ntarget: ${l2Data.target}\nstaticMatches: ${l2Data.staticMatches.length}\ncontracts: ${matchingContracts.length}\n`
               : JSON.stringify(l2Data);
 
-          return rpcSuccess(id, {
+          return observeRespond({
             level: 'L2',
             format,
             payload: payloadStr,
@@ -1194,7 +1280,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               ? `// file: ${l3Data.filePath}\n// version: ${version}\n${numberedSource}`
               : JSON.stringify(l3Data);
 
-          return rpcSuccess(id, {
+          return observeRespond({
             level: 'L3',
             format,
             payload: payloadStr,
@@ -1225,7 +1311,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
         };
         const l4Payload = JSON.stringify(l4Data.traces);
 
-        return rpcSuccess(id, {
+        return observeRespond({
           level: 'L4',
           format,
           payload: l4Payload,
@@ -1238,6 +1324,26 @@ export function createReactOumvController(options: ReactRpcOptions) {
       }
 
       case 'oumv/understand': {
+
+      // §4.1: understand honours the same freshness handshake as observe.
+      const understandWorkspaceVersion = workspaceDigest(rootDir);
+      const understandIfVersion = typeof params?.ifVersion === 'string' ? params.ifVersion.trim() : '';
+      if (understandIfVersion) {
+        if (understandIfVersion !== understandWorkspaceVersion) {
+          return rpcError(
+            id,
+            ERR_STALE_RESOURCE_VERSION,
+            `STALE_RESOURCE_VERSION: the workspace changed since the caller's snapshot (expected ${understandIfVersion}, current is ${understandWorkspaceVersion}) — refetch without ifVersion`,
+            { reason: 'stale_version', current: understandWorkspaceVersion, expected: understandIfVersion }
+          );
+        }
+        return rpcSuccess(id, {
+          query: String(params?.query || 'causality'),
+          unchanged: true,
+          workspaceVersion: understandWorkspaceVersion,
+        });
+      }
+      const understandRespond = (payload: any) => rpcSuccess(id, { ...payload, workspaceVersion: understandWorkspaceVersion });
         const query = String(params?.query || 'causality');
         const target = String(params?.target || params?.componentId || '').trim();
         const importersOf = buildImportDependencyMap(rootDir);
@@ -1291,7 +1397,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               confidence: 'probable' as const,
             },
           };
-          return rpcSuccess(id, {
+          return understandRespond({
             query: 'impact',
             ...impactObj,
             impact: impactObj,
@@ -1306,7 +1412,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             yamlLines.push(`  - file: ${file}`);
             yamlLines.push(`    importedBy: [${deps.join(', ')}]`);
           }
-          return rpcSuccess(id, {
+          return understandRespond({
             query: 'dependencies',
             yaml: yamlLines.join('\n'),
             importers: graphObj,
@@ -1345,7 +1451,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
               confidence: 'unknown' as const,
             },
           };
-          return rpcSuccess(id, {
+          return understandRespond({
             query,
             ...causalityObj,
             causality: causalityObj,
@@ -1377,7 +1483,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             confidence: 'confirmed' as const,
           },
         };
-        return rpcSuccess(id, {
+        return understandRespond({
           query,
           ...causalityObj,
           causality: causalityObj,
@@ -1527,6 +1633,91 @@ export function createReactOumvController(options: ReactRpcOptions) {
         return rpcSuccess(id, { status: 'PREVIEW', applied: false, previews });
       }
 
+      case 'oumv/index': {
+        // §14.1 repo-wide symbol search: the static discovery index IS the
+        // frontend's symbol table (components + routes), so an agent can find
+        // what to read instead of crawling files.
+        const query = String(params?.query ?? '').trim();
+        if (!query) return rpcError(id, ERR_INVALID_PARAMS, 'INVALID_PARAMS: query is required');
+        const lowerQuery = query.toLowerCase();
+        const kinds = Array.isArray(params?.kinds)
+          ? params.kinds.map((kind: unknown) => String(kind).toLowerCase())
+          : [];
+        const wants = (kind: string) => kinds.length === 0 || kinds.includes(kind);
+        const scope = String(params?.scope ?? '').trim().replace(/\\/g, '/');
+        const inScope = (file: string) => !scope || file.replace(/\\/g, '/').startsWith(scope);
+        const limit = Math.max(1, Math.min(Number(params?.limit) || 50, 200));
+
+        const staticRes = scanProjectStaticResources(rootDir);
+        type Candidate = {
+          resourceId: string;
+          name: string;
+          kind: string;
+          file: string;
+          lines: [number, number];
+          signature?: string;
+          qualified?: string;
+        };
+        const candidates: Candidate[] = [];
+        if (wants('component')) {
+          for (const component of staticRes.components) {
+            if (!inScope(component.filePath)) continue;
+            candidates.push({
+              resourceId: component.id,
+              name: component.name,
+              kind: 'component',
+              file: component.filePath,
+              lines: [component.lineStart, component.lineEnd],
+              ...(component.propsInterface ? { signature: `${component.name}(${component.propsInterface})` } : {}),
+            });
+          }
+        }
+        if (wants('route')) {
+          for (const route of staticRes.routes) {
+            if (!inScope(route.filePath)) continue;
+            candidates.push({
+              resourceId: route.id,
+              name: route.path,
+              kind: 'route',
+              file: route.filePath,
+              lines: [1, 1],
+              ...(route.componentName ? { qualified: route.componentName } : {}),
+            });
+          }
+        }
+
+        const rank = (candidate: Candidate): number => {
+          const name = candidate.name.toLowerCase();
+          if (name === lowerQuery) return 0;
+          if (name.startsWith(lowerQuery)) return 1;
+          const tail = name.split('.').pop() ?? name;
+          if (tail === lowerQuery) return 2;
+          const qualifiedTail = (candidate.qualified ?? '').toLowerCase();
+          if (qualifiedTail && qualifiedTail.endsWith(`.${lowerQuery}`)) return 2;
+          if (name.includes(lowerQuery) || qualifiedTail.includes(lowerQuery)) return 3;
+          return -1;
+        };
+
+        const scored = candidates
+          .map((candidate) => ({ candidate, tier: rank(candidate) }))
+          .filter((entry) => entry.tier >= 0)
+          .sort((a, b) => a.tier - b.tier || b.candidate.lines[1] - a.candidate.lines[1]);
+        const matches = scored.slice(0, limit).map(({ candidate, tier }) => ({
+          resourceId: candidate.resourceId,
+          name: candidate.name,
+          kind: candidate.kind,
+          file: candidate.file,
+          lines: candidate.lines,
+          ...(candidate.signature ? { signature: candidate.signature } : {}),
+          match: (['exact', 'prefix', 'qualified-suffix', 'substring'] as const)[tier],
+        }));
+        return rpcSuccess(id, {
+          matches,
+          truncated: scored.length > matches.length,
+          totalMatches: scored.length,
+        });
+      }
+
       case 'oumv/cancel': {
         // §3 best-effort: requests here are answered within one dispatch, so
         // nothing is observably in-flight — the contract says that is a result.
@@ -1536,6 +1727,17 @@ export function createReactOumvController(options: ReactRpcOptions) {
 
       case 'oumv/applyEdit':
       case 'oumv/mutate': {
+        // §3 idempotent retries (wire 1.6.0): a keyed mutation that already ran
+        // replays its first final result instead of re-applying (and re-conflicting).
+        const editIdempotencyKey = typeof params?.idempotencyKey === 'string' ? params.idempotencyKey.trim() : '';
+        const editIdempotencyScope = `${String(params?.sessionId ?? 'anon')}:${editIdempotencyKey}`;
+        if (editIdempotencyKey && idempotencyCache.has(editIdempotencyScope)) {
+          return rpcSuccess(id, idempotencyCache.get(editIdempotencyScope) as Record<string, unknown>);
+        }
+        const editRespond = (payload: Record<string, unknown>) => {
+          if (editIdempotencyKey) idempotencyCache.set(editIdempotencyScope, payload);
+          return rpcSuccess(id, payload);
+        };
         if (isMutateDisabled(rootDir)) {
           return rpcError(
             id,
@@ -1588,7 +1790,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
           fs.mkdirSync(path.dirname(resolved), { recursive: true });
           fs.writeFileSync(resolved, newSource, 'utf-8');
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: path.relative(rootDir, resolved),
             newVersion: 'sha256:' + crypto.createHash('sha256').update(newSource).digest('hex'),
@@ -1649,7 +1851,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             return rpcError(id, ERR_SYNTAX, `SYNTAX_ERROR: pre-flight parse failed: ${err.message}`);
           }
           fs.writeFileSync(resolved, text, 'utf-8');
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: path.relative(rootDir, resolved),
             newVersion: 'sha256:' + crypto.createHash('sha256').update(text).digest('hex'),
@@ -1677,7 +1879,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             return rpcError(id, ERR_CONFLICT, 'CONFLICT_DETECTED: version mismatch on delete');
           }
           fs.unlinkSync(resolved);
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: path.relative(rootDir, resolved),
             syntaxCheck: { status: 'skipped' },
@@ -1722,7 +1924,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
           }
           fs.mkdirSync(path.dirname(target), { recursive: true });
           fs.renameSync(resolved, target);
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: path.relative(rootDir, resolved),
             newPath: renameTo.split(path.sep).join('/'),
@@ -1778,7 +1980,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             backupPath = undefined;
           }
           fs.writeFileSync(resolved, patched, 'utf-8');
-          return rpcSuccess(id, {
+          return editRespond({
             status: 'APPLIED',
             path: path.relative(rootDir, resolved),
             symbol,
@@ -1805,7 +2007,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
             }
           }
 
-          return rpcSuccess(id, {
+          return editRespond({
             success: true,
             status: 'APPLIED',
             path: path.relative(rootDir, res.filePath),

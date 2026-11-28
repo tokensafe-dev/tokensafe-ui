@@ -123,3 +123,14 @@ Thumbs.db
 
 # TokenSafe local cache & runtime metrics
 .tokensafe/
+
+# Certification run artifacts: the scripts rewrite these sources on every run
+# (symbol/delete/rename targets) and every OCC write leaves a .bak beside them.
+certification/app/src/.EditTarget.jsx.bak.*
+certification/app/src/RenameTarget.jsx
+certification/app/src/DeleteTarget.jsx
+certification/app/src/SymbolTarget.jsx
+certification/app-vue/src/RenameTarget.js
+certification/app-vue/src/SymbolTarget.vue
+# Benchmark harness scratch copies
+.bench-tmp-*/
