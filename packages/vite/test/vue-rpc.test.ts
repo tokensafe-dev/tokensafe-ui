@@ -60,6 +60,50 @@ function bump() {
 `;
 
 describe('@tokensafe-ui/vite - Vue OUMV support (wire 1.6.0)', () => {
+
+  it('applies a multi-file batch atomically (wire 1.4.0 mutate.multiFile)', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oumv-vue-batch-'));
+    try {
+      fs.mkdirSync(path.join(tmp, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'src', 'App.vue'), '<template><main /></template>\n', 'utf-8');
+      fs.writeFileSync(path.join(tmp, 'src', 'Extra.vue'), '<template><span /></template>\n', 'utf-8');
+      const appVersion = sha(fs.readFileSync(path.join(tmp, 'src', 'App.vue'), 'utf-8'));
+
+      const controller = createVueOumvController({ rootDir: tmp, server: makeFakeServer() as any });
+      const applied = await controller.handleRpcPayload({
+        id: 'batch',
+        method: 'oumv/applyEdit',
+        params: {
+          edits: [
+            { path: 'src/App.vue', mode: 'replace', expectedVersion: appVersion, replacement: '<template><div /></template>\n' },
+            { path: 'src/New.vue', mode: 'create', replacement: '<template><b /></template>\n' },
+          ],
+        },
+      });
+      expect(applied.body.result?.status).toBe('APPLIED');
+      expect(applied.body.result?.edits).toHaveLength(2);
+      expect(fs.existsSync(path.join(tmp, 'src', 'New.vue'))).toBe(true);
+
+      // A stale version on the second item must leave the first file untouched.
+      const before = fs.readFileSync(path.join(tmp, 'src', 'App.vue'), 'utf-8');
+      const refused = await controller.handleRpcPayload({
+        id: 'batch-atomic',
+        method: 'oumv/applyEdit',
+        params: {
+          edits: [
+            { path: 'src/App.vue', mode: 'replace', expectedVersion: sha(before), replacement: '<template><p /></template>\n' },
+            { path: 'src/Extra.vue', mode: 'replace', expectedVersion: 'sha256:' + '0'.repeat(64), replacement: '<template><i /></template>\n' },
+          ],
+        },
+      });
+      expect(refused.body.error?.code).toBe(-32001);
+      expect(refused.body.error?.data?.editIndex).toBe(1);
+      expect(fs.readFileSync(path.join(tmp, 'src', 'App.vue'), 'utf-8')).toBe(before);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   let tmpDir: string;
 
   beforeEach(() => {

@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import * as parser from '@babel/parser';
 import { scanSourceForComponents } from '@tokensafe-ui/oumv/static';
 import { getCanonicalWorkspaceRoot } from './runtime-store.js';
+import { applyEditBatch } from './batch-edit.js';
 
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
 
@@ -815,7 +816,7 @@ function workspaceDigest(rootDir: string): string {
         const capabilities: any = {
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, componentGraph: true, impactAnalysis: true },
-          mutate: { occ: true, syntaxGuard: true, preview: true, ephemeralDispatch: true },
+          mutate: { occ: true, syntaxGuard: true, preview: true, ephemeralDispatch: true, multiFile: true },
           verify: { multiMetric: true, surfaceDiff: true },
           // Wire 1.6.0: §14.1 symbol search over the static Vue index.
           index: { symbols: true },
@@ -1115,6 +1116,22 @@ function workspaceDigest(rootDir: string): string {
         const mode = String(item?.mode || 'replace').toLowerCase();
 
 
+        if (!['replace', 'create', 'symbol', 'delete', 'rename', 'patch'].includes(mode)) {
+
+          return rpcError(id, ERR_UNSUPPORTED, `UNSUPPORTED_CAPABILITY: unknown preview mode ${JSON.stringify(mode)}`);
+
+        }
+
+
+        // A batch preview would have to run the whole guard chain per item; until it
+        // does, the adapter refuses it instead of previewing only the first file.
+        if (Array.isArray(item?.edits) && item.edits.length > 0) {
+
+          return rpcError(id, ERR_UNSUPPORTED, 'UNSUPPORTED_CAPABILITY: batch preview is not implemented on this adapter', { reason: 'batch_preview_unsupported' });
+
+        }
+
+
         const expectedVersion = item?.expectedVersion;
 
 
@@ -1349,6 +1366,19 @@ function workspaceDigest(rootDir: string): string {
         if (options.sessionToken && params?.disableMutations) {
           return rpcError(id, ERR_PERMISSION_DENIED, 'PERMISSION_DENIED: mutations are disabled');
         }
+        // §4.3 batch (wire 1.4.0 `mutate.multiFile`): all-or-nothing over 1..16
+        // replace/create/patch items, every one validated before the first write.
+        if (Array.isArray(params?.edits) && params.edits.length > 0) {
+          const batch = applyEditBatch({
+            rootDir,
+            edits: params.edits,
+            resolvePath: (rel) => validateProjectPath(rel, rootDir),
+            syntaxCheck: (text, _relPath, absolute) => validateVueSource(absolute, text),
+          });
+          if (!batch.ok) return rpcError(id, batch.code, batch.message, batch.data);
+          return editRespond(batch.result);
+        }
+
         const relPath = String(params?.path || '');
         if (!relPath) return rpcError(id, ERR_INVALID_PARAMS, 'path is required');
         const mode = String(params?.mode || 'replace');

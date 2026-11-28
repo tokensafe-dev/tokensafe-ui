@@ -2,9 +2,9 @@
   "adapterName": "frontend/react",
   "framework": "react",
   "specVersion": "1.6.0",
-  "fixtureVersion": 12,
-  "total": 42,
-  "passed": 42,
+  "fixtureVersion": 13,
+  "total": 44,
+  "passed": 44,
   "failed": 0,
   "skipped": 0,
   "attainedLevel": 3,
@@ -200,6 +200,16 @@
       "status": "passed"
     },
     {
+      "id": "apply-edit-batch-applies-all",
+      "level": 3,
+      "status": "passed"
+    },
+    {
+      "id": "apply-edit-batch-is-atomic",
+      "level": 3,
+      "status": "passed"
+    },
+    {
       "id": "preview-edit-does-not-write",
       "level": 3,
       "status": "passed"
@@ -225,7 +235,7 @@
       "status": "passed"
     }
   ],
-  "generatedAt": "2026-11-28T01:28:59.068Z",
+  "generatedAt": "2026-11-28T03:49:19.359Z",
   "environment": {
     "transport": "http",
     "profile": "frontend",

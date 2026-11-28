@@ -50,6 +50,64 @@ export default function App() {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('applies a multi-file batch atomically and refuses a batch with one bad item', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+    const versionA = 'sha256:' + createHash('sha256').update(fs.readFileSync(path.join(tmpDir, 'src', 'App.tsx'))).digest('hex');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'Extra.tsx'), 'export const extra = 1;\n', 'utf-8');
+    const versionB = 'sha256:' + createHash('sha256').update(fs.readFileSync(path.join(tmpDir, 'src', 'Extra.tsx'))).digest('hex');
+
+    const applied = await controller.handleRpcPayload({
+      id: 'batch',
+      method: 'oumv/applyEdit',
+      params: {
+        edits: [
+          { path: 'src/App.tsx', mode: 'replace', expectedVersion: versionA, replacement: 'export default function App() { return <main />; }\n' },
+          { path: 'src/Extra.tsx', mode: 'patch', expectedVersion: versionB, hunks: [{ target: 'extra = 1', replacement: 'extra = 2' }] },
+          { path: 'src/New.tsx', mode: 'create', replacement: 'export const created = true;\n' },
+        ],
+      },
+    });
+    const payload: any = applied.body;
+    expect(payload.result?.status).toBe('APPLIED');
+    expect(payload.result?.edits).toHaveLength(3);
+    expect(fs.readFileSync(path.join(tmpDir, 'src', 'Extra.tsx'), 'utf-8')).toContain('extra = 2');
+    expect(fs.existsSync(path.join(tmpDir, 'src', 'New.tsx'))).toBe(true);
+
+    // One stale version in the middle must leave every file untouched.
+    const before = fs.readFileSync(path.join(tmpDir, 'src', 'App.tsx'), 'utf-8');
+    const versionAfterBatch = 'sha256:' + createHash('sha256').update(before).digest('hex');
+    const refused: any = (await controller.handleRpcPayload({
+      id: 'batch-atomic',
+      method: 'oumv/applyEdit',
+      params: {
+        edits: [
+          { path: 'src/App.tsx', mode: 'replace', expectedVersion: versionAfterBatch, replacement: 'export const broken = 1;\n' },
+          { path: 'src/Extra.tsx', mode: 'replace', expectedVersion: 'sha256:' + '0'.repeat(64), replacement: 'export const other = 1;\n' },
+        ],
+      },
+    })).body;
+    expect(refused.error?.code).toBe(-32001);
+    expect(refused.error?.data?.editIndex).toBe(1);
+    expect(fs.readFileSync(path.join(tmpDir, 'src', 'App.tsx'), 'utf-8')).toBe(before);
+  });
+
+  it('rejects a batch that repeats a path', async () => {
+    const controller = createReactOumvController({ rootDir: tmpDir });
+    const refused: any = (await controller.handleRpcPayload({
+      id: 'batch-dup',
+      method: 'oumv/applyEdit',
+      params: {
+        edits: [
+          { path: 'src/New.tsx', mode: 'create', replacement: 'export const a = 1;\n' },
+          { path: 'src/New.tsx', mode: 'create', replacement: 'export const b = 2;\n' },
+        ],
+      },
+    })).body;
+    expect(refused.error?.code).toBe(-32011);
+    expect(refused.error?.data?.reason).toBe('duplicate_path');
+    expect(fs.existsSync(path.join(tmpDir, 'src', 'New.tsx'))).toBe(false);
+  });
+
   it('auto-detects React mode and skips SolidJS JSX transformation', () => {
     expect(resolveFrameworkMode(tmpDir, 'auto')).toBe('react');
 

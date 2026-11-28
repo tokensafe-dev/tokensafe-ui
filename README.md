@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/tokensafe-ui.svg)](https://www.npmjs.com/package/tokensafe-ui)
 [![Protocol: OUMV](https://img.shields.io/badge/protocol-OUMV%20v1.4--canonical-brightgreen.svg)](https://github.com/tokensafe-dev/oumv)
 
-> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 and Vue 3 through the same zero-footprint Vite bridge, both certified Level 3 in a real browser (33/33 conformance cases each). A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
+> **OUMV Frontend Profile adapters for the stack you already use** — React 18/19 and Vue 3 through the same zero-footprint Vite bridge, both certified Level 3 in a real browser (44/44 conformance cases each). A native SolidJS reactive runtime ships in the same package as a legacy reference implementation; it is not the recommended path. Protocol: OUMV — the Universal Agent-Runtime Protocol, Frontend Profile (Observe · Understand · Mutate · Verify).**
 
 Part of the **[TokenSafe](https://github.com/tokensafe-dev)** autonomous agent developer ecosystem.
 
@@ -260,7 +260,7 @@ Automatically mounts `/__oumv/rpc` and generates session token descriptors (`.to
 
 ### 1. Conformance: Level 3 in a real browser
 
-`certification/react-vite-browser.json` — **33/33 cases (fixtures v7), Level 3**, produced by
+`certification/react-vite-browser.json` — **44/44 cases (fixtures v13), Level 3**, produced by
 `packages/vite/scripts/certify-react-browser.mjs`: it starts the committed
 `certification/app` through Vite, opens it in headless Chrome, waits for the bridge and
 runs `oumv-certify --url` against the dev server. `oumv/verify` dispatches real synthetic

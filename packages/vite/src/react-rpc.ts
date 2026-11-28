@@ -11,6 +11,7 @@ import { listOUMVComponentContracts, type OumvContractRecord, type OumvStreamTra
 // solid-js dependency) just to serve observe/verify.
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
 import { getCanonicalWorkspaceRoot, getGlobalContractsPath } from './runtime-store.js';
+import { applyEditBatch } from './batch-edit.js';
 
 function readSidecarContracts(rootDir: string): OumvContractRecord[] {
   const candidateFiles = [
@@ -725,7 +726,7 @@ function workspaceDigest(rootDir: string): string {
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, impactAnalysis: true },
           // Wire 1.6.0: preview advertises the §4.4 dry-run (same guard order, no write).
-          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true, preview: true },
+          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true, preview: true, multiFile: true },
           verify: { multiMetric: true, surfaceDiff: true },
           // Wire 1.6.0: §14.1 symbol search over the static discovery index.
           index: { symbols: true },
@@ -1744,6 +1745,21 @@ function workspaceDigest(rootDir: string): string {
             ERR_PERMISSION_DENIED,
             'Workspace policy explicitly prohibits mutations (.tokensafe/oumv.json: permissions.mutate=false)'
           );
+        }
+
+        // §4.3 batch (wire 1.4.0 `mutate.multiFile`): all-or-nothing over 1..16
+        // replace/create/patch items, every one validated before the first write.
+        if (Array.isArray(params?.edits) && params.edits.length > 0) {
+          const batch = applyEditBatch({
+            rootDir,
+            edits: params.edits,
+            resolvePath: (rel) => validateProjectPath(rel, rootDir),
+            syntaxCheck: (text) => {
+              parser.parse(text, { sourceType: 'unambiguous', plugins: ['typescript', 'jsx'] });
+            },
+          });
+          if (!batch.ok) return rpcError(id, batch.code, batch.message, batch.data);
+          return editRespond(batch.result);
         }
 
         const relPath = String(params?.path || params?.filePath || '');
