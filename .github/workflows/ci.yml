@@ -14,6 +14,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A wedged step must fail on a budget, never run for hours.
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
