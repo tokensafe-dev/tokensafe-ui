@@ -12,6 +12,7 @@ import { listOUMVComponentContracts, type OumvContractRecord, type OumvStreamTra
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
 import { getCanonicalWorkspaceRoot, getGlobalContractsPath } from './runtime-store.js';
 import { applyEditBatch } from './batch-edit.js';
+import { isReadOnlyAbsentMethod } from './read-only.js';
 
 function readSidecarContracts(rootDir: string): OumvContractRecord[] {
   const candidateFiles = [
@@ -98,6 +99,8 @@ export interface ReactRpcOptions {
   rootDir: string;
   sessionToken?: string;
   server?: ViteDevServer;
+  /** §8.5: register only the read methods; mutating methods answer -32601. */
+  readOnly?: boolean;
 }
 
 const ERR_CONFLICT = -32001;
@@ -354,6 +357,7 @@ export function createReactOumvController(options: ReactRpcOptions) {
   // `../../..` into `path`/`backupPath`: the jail realpaths the file, not the root.
   const rootDir = getCanonicalWorkspaceRoot(options.rootDir);
   const { server } = options;
+  const readOnly = options.readOnly === true;
   const reactVersion = readReactVersion(rootDir);
   // applyEdit is the only path that needs the edit engine; warm it in the
   // background so the first mutation does not pay the bundle import.
@@ -681,6 +685,13 @@ function workspaceDigest(rootDir: string): string {
   const dispatchRpc = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     const { id, method, params = {} } = payload || {};
 
+    // §8.5 (read-only deployment): the mutating methods are absent from the
+    // registry, so the answer is -32601 before any sessionId validation — a
+    // stale token must not turn absence into -32011 (or -32007).
+    if (readOnly && isReadOnlyAbsentMethod(method)) {
+      return rpcError(id, ERR_METHOD_NOT_FOUND, `Method not found: ${method}`);
+    }
+
     // Spec §3: a supplied sessionId must be live; an absent one means stateless.
     if (method === 'oumv/disconnect') {
       const closed = sessions.delete(String(params.sessionId || ''));
@@ -722,12 +733,20 @@ function workspaceDigest(rootDir: string): string {
         const grantedTtl =
           Number.isFinite(rawTtl) && rawTtl > 0 ? Math.min(Math.max(Math.floor(rawTtl), 1), 86400) : SESSION_TTL_SECONDS;
         sessions.set(sessionId, Date.now() + grantedTtl * 1000);
-        const capabilities = {
+        // §8.5 (read-only deployment, wire 1.6.0): the mutating methods are not
+        // registered, so the handshake advertises `readOnly: true` and omits
+        // `mutate`/`verify`. The shipped default profile stays read-write.
+        const capabilities: Record<string, any> = {
+          ...(readOnly ? { readOnly: true } : {}),
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, impactAnalysis: true },
-          // Wire 1.6.0: preview advertises the §4.4 dry-run (same guard order, no write).
-          mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true, preview: true, multiFile: true },
-          verify: { multiMetric: true, surfaceDiff: true },
+          ...(readOnly
+            ? {}
+            : {
+                // Wire 1.6.0: preview advertises the §4.4 dry-run (same guard order, no write).
+                mutate: { occ: true, syntaxGuard: true, ephemeralDispatch: true, preview: true, multiFile: true },
+                verify: { multiMetric: true, surfaceDiff: true },
+              }),
           // Wire 1.6.0: §14.1 symbol search over the static discovery index.
           index: { symbols: true },
           // Wire 1.5.0/1.6.0: TTL negotiation, best-effort cancel, idempotent retries.
@@ -740,10 +759,10 @@ function workspaceDigest(rootDir: string): string {
           const reqLevels = Array.isArray(requested.observe?.levels) ? requested.observe.levels : [];
           const reqFormats = Array.isArray(requested.observe?.formats) ? requested.observe.formats : [];
           if (reqLevels.length > 0) {
-            capabilities.observe.levels = capabilities.observe.levels.filter((level) => reqLevels.includes(level));
+            capabilities.observe.levels = capabilities.observe.levels.filter((level: string) => reqLevels.includes(level));
           }
           if (reqFormats.length > 0) {
-            capabilities.observe.formats = capabilities.observe.formats.filter((format) => reqFormats.includes(format));
+            capabilities.observe.formats = capabilities.observe.formats.filter((format: string) => reqFormats.includes(format));
           }
         }
         return rpcSuccess(id, {

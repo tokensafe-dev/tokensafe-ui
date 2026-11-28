@@ -22,6 +22,7 @@ import {
 } from './vue-bridge.js';
 import { createVueOumvController } from './vue-rpc.js';
 import { attachStreamTransports } from './streams.js';
+import { isReadOnlyAbsentMethod } from './read-only.js';
 import {
   clearWorkspaceRuntimeDescriptor,
   writeWorkspaceRuntimeDescriptor,
@@ -36,6 +37,12 @@ export interface TokensafeUiPluginOptions {
   sessionToken?: string;
   framework?: TokensafeFrameworkMode;
   requireAuth?: boolean;
+  /**
+   * OUMV §8.5 read-only deployment: the mutating methods (`applyEdit`,
+   * `previewEdit`, `verify`, `build`, `mutate`) are not registered and answer
+   * -32601 METHOD_NOT_FOUND. The default profile stays read-write.
+   */
+  readOnly?: boolean;
 }
 
 export function resolveFrameworkMode(
@@ -74,6 +81,7 @@ function writeRuntimeDescriptor(
 export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
   const enableRpc = options.enableRpc !== false;
   const sessionToken = options.sessionToken || crypto.randomBytes(16).toString('hex');
+  const readOnly = options.readOnly === true;
   let latestLiveSnapshot = 'view: empty\nelements: []';
   let resolvedMode: 'tokensafe-ui' | 'react' | 'vue' = resolveFrameworkMode(process.cwd(), options.framework);
   let isServeCommand = true;
@@ -157,8 +165,8 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
       if (resolvedMode === 'react' || resolvedMode === 'vue') {
         const controller =
           resolvedMode === 'react'
-            ? createReactOumvController({ rootDir, sessionToken, server })
-            : createVueOumvController({ rootDir, sessionToken, server });
+            ? createReactOumvController({ rootDir, sessionToken, server, readOnly })
+            : createVueOumvController({ rootDir, sessionToken, server, readOnly });
         const runtimeVersion =
           resolvedMode === 'react' ? (controller as any).reactVersion : (controller as any).vueVersion;
 
@@ -220,19 +228,6 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
             return;
           }
 
-          if (!isAuthorized(req)) {
-            res.statusCode = 401;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(
-              JSON.stringify({
-                jsonrpc: '2.0',
-                id: null,
-                error: { code: -32007, message: 'PERMISSION_DENIED: invalid OUMV session token' },
-              })
-            );
-            return;
-          }
-
           let body = '';
           req.on('data', (chunk: any) => {
             body += chunk;
@@ -240,8 +235,59 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
 
           req.on('end', async () => {
             res.setHeader('Content-Type', 'application/json');
+            let payload: any;
             try {
-              const payload = JSON.parse(body || '{}');
+              payload = JSON.parse(body || '{}');
+            } catch (err: any) {
+              res.statusCode = 400;
+              res.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: null,
+                  error: { code: -32700, message: `Parse error: ${err.message}` },
+                })
+              );
+              return;
+            }
+
+            // §8.5: the registry check runs before the session-token check, so a
+            // stale token cannot turn an absent mutating method into -32007.
+            if (readOnly) {
+              const items = Array.isArray(payload) ? payload : [payload];
+              if (items.length > 0 && items.every((item) => isReadOnlyAbsentMethod(item?.method))) {
+                res.statusCode = 200;
+                res.end(
+                  JSON.stringify(
+                    Array.isArray(payload)
+                      ? payload.map((item) => ({
+                          jsonrpc: '2.0',
+                          id: item?.id ?? null,
+                          error: { code: -32601, message: `Method not found: ${item?.method}` },
+                        }))
+                      : {
+                          jsonrpc: '2.0',
+                          id: payload?.id ?? null,
+                          error: { code: -32601, message: `Method not found: ${payload?.method}` },
+                        }
+                  )
+                );
+                return;
+              }
+            }
+
+            if (!isAuthorized(req)) {
+              res.statusCode = 401;
+              res.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: null,
+                  error: { code: -32007, message: 'PERMISSION_DENIED: invalid OUMV session token' },
+                })
+              );
+              return;
+            }
+
+            try {
               const out = await controller.handleRpcPayload(payload);
               res.statusCode = out.statusCode;
               res.end(JSON.stringify(out.body));
@@ -294,8 +340,8 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
               observeLevels: ['L0', 'L1', 'L2', 'L3', 'L4'],
               transports: ['http', 'sse', 'ws'],
               causality: true,
-              occ: true,
-              verify: true,
+              // §8.5: a read-only runtime never advertises mutation or verify.
+              ...(readOnly ? { readOnly: true } : { occ: true, verify: true }),
             },
           });
         };
@@ -342,6 +388,19 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
             const payload = JSON.parse(body || '{}');
             const { method, params } = payload;
 
+            // §8.5: read-only deployments do not register the mutating methods.
+            if (readOnly && isReadOnlyAbsentMethod(method)) {
+              res.statusCode = 200;
+              res.end(
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: payload.id ?? 1,
+                  error: { code: -32601, message: `Method not found: ${method}` },
+                })
+              );
+              return;
+            }
+
             switch (method) {
               case 'oumv/handshake':
               case 'handshake': {
@@ -361,10 +420,16 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
                       // registered instances. It does not read source or trace
                       // requests, so L3/L4 are not advertised.
                       capabilities: {
+                        // §8.5: read-only drops the mutating methods entirely.
+                        ...(readOnly ? { readOnly: true } : {}),
                         observe: { levels: ['L0', 'L1', 'L2'], formats: ['yaml', 'json'] },
                         understand: { causality: true, signalsGraph: true, impactAnalysis: true },
-                        mutate: { occ: true, syntaxGuard: false, ephemeralDispatch: true },
-                        verify: { multiMetric: true, surfaceDiff: true },
+                        ...(readOnly
+                          ? {}
+                          : {
+                              mutate: { occ: true, syntaxGuard: false, ephemeralDispatch: true },
+                              verify: { multiMetric: true, surfaceDiff: true },
+                            }),
                       },
                     },
                   })
@@ -734,7 +799,7 @@ export function tokensafeUi(options: TokensafeUiPluginOptions = {}): Plugin {
           capabilities: {
             observeLevels: ['L0', 'L1', 'L2'],
             causality: true,
-            occ: true,
+            ...(readOnly ? { readOnly: true } : { occ: true }),
           },
         });
       };

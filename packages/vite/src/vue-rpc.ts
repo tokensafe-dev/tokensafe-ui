@@ -6,6 +6,7 @@ import * as parser from '@babel/parser';
 import { scanSourceForComponents } from '@tokensafe-ui/oumv/static';
 import { getCanonicalWorkspaceRoot } from './runtime-store.js';
 import { applyEditBatch } from './batch-edit.js';
+import { isReadOnlyAbsentMethod } from './read-only.js';
 
 const loadMcpTools = () => import('@tokensafe-ui/mcp');
 
@@ -28,6 +29,8 @@ export interface VueRpcOptions {
   rootDir: string;
   sessionToken?: string;
   server?: ViteDevServer;
+  /** §8.5: register only the read methods; mutating methods answer -32601. */
+  readOnly?: boolean;
 }
 
 export interface VueComponentInfo {
@@ -451,6 +454,7 @@ export function createVueOumvController(options: VueRpcOptions) {
   // even when the root is reached through a symlink (macOS /var → /private/var).
   const rootDir = getCanonicalWorkspaceRoot(options.rootDir);
   const { server } = options;
+  const readOnly = options.readOnly === true;
   const packagePath = path.join(rootDir, 'package.json');
   let vueVersion = '3.x';
   try {
@@ -779,6 +783,13 @@ function workspaceDigest(rootDir: string): string {
   const dispatchOne = async (payload: any): Promise<{ statusCode: number; body: any }> => {
     const { id, method, params = {} } = payload || {};
 
+    // §8.5 (read-only deployment): the mutating methods are absent from the
+    // registry, so the answer is -32601 before any sessionId validation — a
+    // stale token must not turn absence into -32011 (or -32007).
+    if (readOnly && isReadOnlyAbsentMethod(method)) {
+      return rpcError(id, ERR_METHOD_NOT_FOUND, `Method not found: ${method}`);
+    }
+
     if (method === 'oumv/disconnect') {
       return rpcSuccess(id, { closed: sessions.delete(String(params.sessionId || '')) });
     }
@@ -813,11 +824,19 @@ function workspaceDigest(rootDir: string): string {
         const grantedTtl =
           Number.isFinite(rawTtl) && rawTtl > 0 ? Math.min(Math.max(Math.floor(rawTtl), 1), 86400) : SESSION_TTL_SECONDS;
         sessions.set(sessionId, Date.now() + grantedTtl * 1000);
+        // §8.5 (read-only deployment, wire 1.6.0): the mutating methods are not
+        // registered, so the handshake advertises `readOnly: true` and omits
+        // `mutate`/`verify`. The shipped default profile stays read-write.
         const capabilities: any = {
+          ...(readOnly ? { readOnly: true } : {}),
           observe: { levels: ['L0', 'L1', 'L2', 'L3', 'L4'], formats: ['yaml', 'json'] },
           understand: { causality: true, signalsGraph: false, componentGraph: true, impactAnalysis: true },
-          mutate: { occ: true, syntaxGuard: true, preview: true, ephemeralDispatch: true, multiFile: true },
-          verify: { multiMetric: true, surfaceDiff: true },
+          ...(readOnly
+            ? {}
+            : {
+                mutate: { occ: true, syntaxGuard: true, preview: true, ephemeralDispatch: true, multiFile: true },
+                verify: { multiMetric: true, surfaceDiff: true },
+              }),
           // Wire 1.6.0: §14.1 symbol search over the static Vue index.
           index: { symbols: true },
           // Wire 1.5.0: the handshake honours sessionTtlSeconds and echoes ttlSeconds.
